@@ -1,0 +1,288 @@
+:root {
+  --bg: #f4f1e8;
+  --panel: #fffdf7;
+  --ink: #1f2430;
+  --ink-soft: #5e6472;
+  --line: #d8d1bf;
+  --primary: #0f766e;
+  --primary-soft: #d6f0ed;
+  --danger: #b91c1c;
+  --danger-soft: #fee2e2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at 20% 20%, #faf7f0 0%, var(--bg) 45%, #ece6d7 100%);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 253, 247, 0.85);
+  backdrop-filter: blur(2px);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.topbar p {
+  margin: 2px 0 0;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+button,
+.file-input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+button:hover,
+.file-input:hover {
+  border-color: var(--primary);
+}
+
+button.danger {
+  border-color: #f5b8b8;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.file-input input {
+  display: none;
+}
+
+.layout {
+  height: calc(100vh - 82px);
+  display: grid;
+  grid-template-columns: 1fr 380px;
+}
+
+.board-wrap {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+}
+
+.board-toolbar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+}
+
+.board {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  min-height: 640px;
+  background-image: linear-gradient(to right, rgba(0, 0, 0, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.035) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.edges path {
+  stroke: #556070;
+  stroke-width: 2;
+  fill: none;
+  marker-end: url(#arrow);
+}
+
+.edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 0.74rem;
+  color: #364052;
+  white-space: nowrap;
+}
+
+.stage-card {
+  position: absolute;
+  width: 260px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(39, 38, 34, 0.09);
+  overflow: hidden;
+  cursor: grab;
+}
+
+.stage-card.selected {
+  border-color: var(--primary);
+  box-shadow: 0 8px 24px rgba(15, 118, 110, 0.24);
+}
+
+.stage-head {
+  padding: 9px 10px;
+  background: var(--primary-soft);
+  border-bottom: 1px solid #bbdcd8;
+}
+
+.stage-id {
+  font-size: 0.72rem;
+  color: #0b5750;
+}
+
+.stage-title {
+  font-size: 0.94rem;
+  font-weight: 600;
+}
+
+.stage-content {
+  padding: 8px 10px 10px;
+  font-size: 0.81rem;
+  color: #2f3848;
+  display: grid;
+  gap: 6px;
+}
+
+.stage-content strong {
+  color: #1e2a3d;
+  font-size: 0.76rem;
+}
+
+.side-panel {
+  background: #fffef9;
+  overflow: auto;
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.panel-block {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.panel-block h2 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+label {
+  font-size: 0.78rem;
+  color: #4f5869;
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px;
+  font: inherit;
+  font-size: 0.85rem;
+  background: #fffeff;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.placeholder {
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+}
+
+.hidden {
+  display: none;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.transition-editor {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.transition-list {
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.transition-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px;
+  font-size: 0.8rem;
+  display: grid;
+  gap: 4px;
+}
+
+.transition-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.transition-item button {
+  padding: 3px 8px;
+  font-size: 0.72rem;
+}
+
+#spec-output {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.76rem;
+}
+
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 54vh 46vh;
+  }
+
+  .board-wrap {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}

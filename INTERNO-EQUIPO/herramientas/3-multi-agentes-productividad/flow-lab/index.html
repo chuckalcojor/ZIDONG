@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flow Lab A3 - Pizarra Conversacional</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Flow Lab A3</h1>
+        <p>Pizarra interna para diseñar y alinear el flujo conversacional.</p>
+      </div>
+      <div class="actions">
+        <button id="btn-add-stage" type="button">Nueva etapa</button>
+        <button id="btn-add-transition" type="button">Nueva transición</button>
+        <button id="btn-layout" type="button">Auto ordenar</button>
+        <button id="btn-export" type="button">Exportar JSON</button>
+        <label class="file-input">
+          Importar JSON
+          <input id="import-file" type="file" accept="application/json" />
+        </label>
+        <button id="btn-reset" type="button" class="danger">Reset demo</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="board-wrap">
+        <div class="board-toolbar">
+          <span>Arrastra las tarjetas para organizar el flujo.</span>
+          <span id="selection-label">Sin etapa seleccionada</span>
+        </div>
+        <div id="board" class="board" aria-label="Pizarra de flujo">
+          <svg id="edges" class="edges" aria-hidden="true">
+            <defs>
+              <marker
+                id="arrow"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z"></path>
+              </marker>
+            </defs>
+          </svg>
+        </div>
+      </section>
+
+      <aside class="side-panel">
+        <section class="panel-block">
+          <h2>Etapa seleccionada</h2>
+          <div id="stage-empty" class="placeholder">Selecciona una tarjeta para editarla.</div>
+          <form id="stage-form" class="hidden" autocomplete="off">
+            <label>Clave
+              <input id="stage-id" type="text" />
+            </label>
+            <label>Nombre visible
+              <input id="stage-title" type="text" />
+            </label>
+            <label>Objetivo de la etapa
+              <textarea id="stage-goal" rows="2"></textarea>
+            </label>
+            <label>Respuesta esperada del bot
+              <textarea id="stage-bot" rows="3"></textarea>
+            </label>
+            <label>Respuesta esperada del usuario
+              <textarea id="stage-user" rows="3"></textarea>
+            </label>
+            <label>Notas / decisiones
+              <textarea id="stage-notes" rows="3"></textarea>
+            </label>
+            <div class="row-actions">
+              <button id="btn-duplicate-stage" type="button">Duplicar</button>
+              <button id="btn-delete-stage" type="button" class="danger">Eliminar etapa</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel-block">
+          <h2>Transiciones</h2>
+          <div class="transition-editor">
+            <label>Desde
+              <select id="transition-from"></select>
+            </label>
+            <label>Hacia
+              <select id="transition-to"></select>
+            </label>
+            <label>Disparador
+              <input id="transition-trigger" type="text" placeholder="Ej: Usuario confirma direccion" />
+            </label>
+            <label>Etiqueta corta
+              <input id="transition-label" type="text" placeholder="Confirma" />
+            </label>
+            <button id="btn-save-transition" type="button">Guardar transición</button>
+          </div>
+          <div id="transition-list" class="transition-list"></div>
+        </section>
+
+        <section class="panel-block">
+          <h2>Texto para implementación</h2>
+          <button id="btn-generate-spec" type="button">Generar borrador</button>
+          <textarea id="spec-output" rows="10" readonly></textarea>
+        </section>
+      </aside>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

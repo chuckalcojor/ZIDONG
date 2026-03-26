@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A3 Control Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='20260324-kanban-v4') }}">
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="theme-dark">
+  <div class="frame-bg">
+    <div class="app-frame">
+      <aside class="side-nav">
+        <div class="logo-row">
+          <div class="logo-pill">A3</div>
+          <div>
+            <div class="logo-title">Control Center</div>
+            <div class="logo-sub">Laboratorio Veterinario</div>
+          </div>
+        </div>
+
+        <nav class="menu-list">
+          <a href="{{ url_for('dashboard') }}" class="menu-link {{ 'active' if active_tab == 'dashboard' else '' }}"><i data-lucide="layout-dashboard"></i>Dashboard</a>
+          <a href="{{ url_for('clients_page') }}" class="menu-link {{ 'active' if active_tab == 'clientes' else '' }}"><i data-lucide="users"></i>Clientes</a>
+          <a href="{{ url_for('samples_page') }}" class="menu-link {{ 'active' if active_tab == 'muestras' else '' }}"><i data-lucide="test-tube-2"></i>Muestras</a>
+          <a href="{{ url_for('analysis_page') }}" class="menu-link {{ 'active' if active_tab == 'analisis' else '' }}"><i data-lucide="activity"></i>Analisis</a>
+          <a href="{{ url_for('flow_page') }}" class="menu-link {{ 'active' if active_tab == 'flujo' else '' }}"><i data-lucide="git-branch"></i>Flujo</a>
+        </nav>
+
+        <div class="side-footer">
+          <div class="user-chip"><i data-lucide="user-round"></i>{{ username }}</div>
+          <a href="{{ url_for('logout') }}" class="logout-btn"><i data-lucide="log-out"></i>Cerrar sesion</a>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="top-bar">
+          <div class="top-actions">
+            <span class="action-pill">Market</span>
+            <span class="action-pill">Wallets</span>
+            <span class="action-pill">Tools</span>
+          </div>
+          <div class="search-pill"><i data-lucide="search"></i>Buscar cliente, muestra o analisis...</div>
+          <div class="top-icons">
+            <span class="icon-btn"><i data-lucide="bell"></i></span>
+            <span class="icon-btn"><i data-lucide="settings"></i></span>
+          </div>
+        </header>
+
+        {% if active_tab == 'dashboard' %}
+        <section class="section-head">
+          <h1>Dashboard Ejecutivo</h1>
+          <p>Metricas operativas en tiempo real para gestion del laboratorio.</p>
+        </section>
+
+        <section class="kpi-grid">
+          <article class="kpi-card"><span>Clientes Totales</span><strong>{{ context.summary.total_clients }}</strong></article>
+          <article class="kpi-card"><span>Con Mensajero</span><strong>{{ context.summary.clients_with_courier }}</strong></article>
+          <article class="kpi-card"><span>Sin Mensajero</span><strong>{{ context.summary.clients_without_courier }}</strong></article>
+          <article class="kpi-card"><span>Solicitudes Activas</span><strong>{{ context.summary.active_requests }}</strong></article>
+          <article class="kpi-card"><span>Muestras Activas</span><strong>{{ context.summary.total_samples }}</strong></article>
+          <article class="kpi-card"><span>Analisis en Curso</span><strong>{{ context.summary.analysis_active_types }}</strong></article>
+          <article class="kpi-card"><span>Para Retirar</span><strong>{{ context.summary.pending_pickup }}</strong></article>
+          <article class="kpi-card"><span>En Analisis</span><strong>{{ context.summary.in_analysis }}</strong></article>
+          <article class="kpi-card"><span>Resultados Listos</span><strong>{{ context.summary.ready_results }}</strong></article>
+          <article class="kpi-card"><span>Resultados Entregados</span><strong>{{ context.summary.delivered_results }}</strong></article>
+          <article class="kpi-card"><span>Conversaciones Abiertas</span><strong>{{ context.summary.open_conversations }}</strong></article>
+          <article class="kpi-card"><span>Catalogo</span><strong>{{ context.summary.catalog_tests }}</strong></article>
+        </section>
+
+        <section class="chart-grid">
+          <article class="panel-card">
+            <h3>Estado de Muestras</h3>
+            <div id="chart-sample-status"></div>
+          </article>
+          <article class="panel-card">
+            <h3>Solicitudes por Area</h3>
+            <div id="chart-service-areas"></div>
+          </article>
+        </section>
+        {% endif %}
+
+        {% if active_tab == 'clientes' %}
+        <section class="section-head">
+          <h1>Clientes</h1>
+          <p>Datos completos del cliente, asignacion y estado operativo.</p>
+        </section>
+        <section class="table-shell">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cliente</th><th>Telefono</th><th>Direccion</th><th>Zona</th><th>Mensajero</th><th>Solicitudes</th><th>Muestras</th><th>Estado Solicitud</th><th>Estado Muestra</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in context.clients_rows %}
+                <tr>
+                  <td>{{ row.clinic_name }}</td>
+                  <td>{{ row.phone }}</td>
+                  <td>{{ row.address }}</td>
+                  <td>{{ row.zone }}</td>
+                  <td>{{ row.courier_name }}</td>
+                  <td>{{ row.requests_count }}</td>
+                  <td>{{ row.samples_count }}</td>
+                  <td><span class="status-badge">{{ row.latest_request_status }}</span></td>
+                  <td><span class="status-badge">{{ row.latest_sample_status }}</span></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        {% endif %}
+
+        {% if active_tab == 'muestras' %}
+        <section class="section-head">
+          <h1>Muestras</h1>
+          <p>Trazabilidad completa: a retirar, retirada, en camino, laboratorio y analisis listo.</p>
+        </section>
+
+        <section class="kpi-grid compact">
+          <article class="kpi-card"><span>A retirar</span><strong>{{ context.sample_status.get('pending_pickup', 0) }}</strong></article>
+          <article class="kpi-card"><span>Retirada</span><strong>{{ context.sample_status.get('picked_up', 0) }}</strong></article>
+          <article class="kpi-card"><span>En camino</span><strong>{{ context.sample_status.get('on_route', 0) }}</strong></article>
+          <article class="kpi-card"><span>En laboratorio</span><strong>{{ context.sample_status.get('received_lab', 0) + context.sample_status.get('in_lab', 0) }}</strong></article>
+          <article class="kpi-card"><span>Para procesar</span><strong>{{ context.sample_status.get('received_lab', 0) }}</strong></article>
+          <article class="kpi-card"><span>Procesada</span><strong>{{ context.sample_status.get('processed', 0) }}</strong></article>
+          <article class="kpi-card"><span>Analisis listo</span><strong>{{ context.sample_status.get('ready_results', 0) }}</strong></article>
+        </section>
+
+        <section class="table-shell">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th><th>Cliente</th><th>Tipo Muestra</th><th>Analisis</th><th>Prioridad</th><th>Estado</th><th>Mensajero</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for sample in context.samples %}
+                <tr>
+                  <td>{{ sample.created_at[:16] if sample.created_at else '-' }}</td>
+                  <td>{{ sample.clients.clinic_name if sample.clients else '-' }}</td>
+                  <td>{{ sample.sample_type or '-' }}</td>
+                  <td>{{ sample.test_name or sample.test_code or '-' }}</td>
+                  <td>{{ sample.priority or '-' }}</td>
+                  <td><span class="status-badge">{{ sample.status }}</span></td>
+                  <td>{{ sample.couriers.name if sample.couriers else '-' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        {% endif %}
+
+        {% if active_tab == 'analisis' %}
+        <section class="section-head">
+          <h1>Analisis</h1>
+          <p>Catalogo completo organizado por codigo, tipo de prueba, prueba, tiempo de entrega y valor.</p>
+        </section>
+
+        <section class="kpi-grid compact">
+          <article class="kpi-card"><span>Tipos en Gestion</span><strong>{{ context.summary.analysis_active_types }}</strong></article>
+          <article class="kpi-card"><span>Total Catalogo</span><strong>{{ context.summary.catalog_tests }}</strong></article>
+          <article class="kpi-card"><span>Muestras Activas</span><strong>{{ context.summary.total_samples }}</strong></article>
+        </section>
+
+        <section class="panel-card">
+          <h3>Top Analisis en Gestion</h3>
+          <div id="chart-analysis-top"></div>
+        </section>
+
+        <section class="table-shell">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Codigo</th><th>Tipo de Prueba</th><th>Prueba</th><th>Tiempo de Entrega</th><th>Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in context.catalog_rows %}
+                <tr>
+                  <td>{{ row.analysis_code }}</td>
+                  <td>{{ row.test_type }}</td>
+                  <td>{{ row.test_name }}</td>
+                  <td>{{ row.turnaround }}</td>
+                  <td>
+                    {% if row.price_cop %}
+                      $ {{ "{:,}".format(row.price_cop).replace(",", ".") }}
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        {% endif %}
+
+        {% if active_tab == 'flujo' %}
+        <section class="section-head">
+          <h1>Flujo Conversacional</h1>
+          <p>Tablero por etapas del embudo conversacional para sesiones activas de Telegram.</p>
+        </section>
+
+        <section class="flow-board-shell">
+          <div class="flow-board-meta">
+            <span class="flow-chip">Sesiones: {{ context.flow_summary.sessions_tracked }}</span>
+            <span class="flow-chip">Transiciones: {{ context.flow_summary.transitions_logged }}</span>
+            <span class="flow-chip">Escaladas: {{ context.flow_summary.sessions_handoff }}</span>
+          </div>
+
+          <div class="kanban-flow-board" style="--lane-count: {{ context.flow_kanban_lanes|length }};">
+            {% for lane in context.flow_kanban_lanes %}
+            <article class="kanban-flow-lane">
+              <header class="kanban-flow-header">
+                <h3>{{ lane.label }}</h3>
+                <span class="kanban-flow-count">{{ lane.count }}</span>
+              </header>
+              <p class="kanban-flow-stage">{{ lane.stage_key }}</p>
+
+              <div class="kanban-flow-cards">
+                {% if lane.cards %}
+                  {% for card in lane.cards %}
+                  {% set card_identifier = card.phone if card.phone and card.phone != '-' else ('Chat ' ~ card.external_chat_id) %}
+                  <button
+                    type="button"
+                    class="kanban-flow-card"
+                    data-clinic="{{ card.clinic_name }}"
+                    data-phone="{{ card_identifier }}"
+                    data-chat="{{ card.external_chat_id }}"
+                    data-status="{{ card.status }}"
+                    data-transition="{{ card.last_transition }}"
+                    data-updated="{{ card.updated_at[:16] if card.updated_at and card.updated_at != '-' else '-' }}"
+                    data-stage="{{ lane.label }}"
+                    data-handoff="{{ ('Si - ' ~ card.handoff_area) if card.requires_handoff else 'No' }}"
+                  >
+                    <div class="kanban-flow-card-top">
+                      <strong>{{ card.clinic_name }}</strong>
+                      <span>{{ card_identifier }}</span>
+                    </div>
+                  </button>
+                  {% endfor %}
+                {% else %}
+                <article class="kanban-flow-empty">No hay clientes en esta etapa</article>
+                {% endif %}
+              </div>
+            </article>
+            {% endfor %}
+          </div>
+
+          <div class="flow-modal" id="flow-details-modal" aria-hidden="true">
+            <div class="flow-modal-overlay" data-modal-close></div>
+            <article class="flow-modal-card" role="dialog" aria-modal="true" aria-labelledby="flow-modal-title">
+              <header class="flow-modal-head">
+                <h3 id="flow-modal-title">Detalle de sesion</h3>
+                <button type="button" class="flow-modal-close" data-modal-close>
+                  <i data-lucide="x"></i>
+                </button>
+              </header>
+              <div class="flow-modal-body">
+                <p><span>Cliente</span><strong data-modal-field="clinic">-</strong></p>
+                <p><span>Telefono</span><strong data-modal-field="phone">-</strong></p>
+                <p><span>Etapa</span><strong data-modal-field="stage">-</strong></p>
+                <p><span>Estado</span><strong data-modal-field="status">-</strong></p>
+                <p><span>Chat ID</span><strong data-modal-field="chat">-</strong></p>
+                <p><span>Ultimo cambio</span><strong data-modal-field="transition">-</strong></p>
+                <p><span>Actualizado</span><strong data-modal-field="updated">-</strong></p>
+                <p><span>Handoff</span><strong data-modal-field="handoff">-</strong></p>
+              </div>
+            </article>
+          </div>
+        </section>
+        {% endif %}
+      </main>
+    </div>
+  </div>
+
+  <script>
+    lucide.createIcons();
+
+    const sampleStatus = {{ context.sample_status | tojson }};
+    const topServiceAreas = {{ context.top_service_areas | tojson }};
+    const analysisRows = {{ context.analysis_rows[:12] | tojson }};
+
+    function mountSampleStatus() {
+      const el = document.querySelector('#chart-sample-status');
+      if (!el) return;
+      const labels = Object.keys(sampleStatus);
+      const values = labels.map(key => sampleStatus[key]);
+      new ApexCharts(el, {
+        chart: { type: 'donut', background: 'transparent', toolbar: { show: false }, height: 320 },
+        labels,
+        series: values,
+        dataLabels: { enabled: false },
+        legend: { position: 'bottom', labels: { colors: '#94a3b8' } },
+        stroke: { colors: ['#050d22'] },
+        colors: ['#3b82f6','#0ea5e9','#22c55e','#f59e0b','#a855f7','#ef4444','#14b8a6','#eab308'],
+        theme: { mode: 'dark' }
+      }).render();
+    }
+
+    function mountServiceAreas() {
+      const el = document.querySelector('#chart-service-areas');
+      if (!el) return;
+      const labels = topServiceAreas.map(item => item.service_area);
+      const values = topServiceAreas.map(item => item.count);
+      new ApexCharts(el, {
+        chart: { type: 'line', background: 'transparent', toolbar: { show: false }, height: 320 },
+        series: [{ name: 'Solicitudes', data: values }],
+        xaxis: { categories: labels, labels: { style: { colors: '#94a3b8' } } },
+        yaxis: { labels: { style: { colors: '#94a3b8' } } },
+        stroke: { curve: 'smooth', width: 3 },
+        markers: { size: 4 },
+        grid: { borderColor: 'rgba(59,130,246,.2)' },
+        dataLabels: { enabled: false },
+        colors: ['#3b82f6'],
+        theme: { mode: 'dark' }
+      }).render();
+    }
+
+    function mountAnalysisTop() {
+      const el = document.querySelector('#chart-analysis-top');
+      if (!el) return;
+      const labels = analysisRows.map(item => item.analysis_code || item.analysis_name);
+      const values = analysisRows.map(item => item.active_samples);
+      new ApexCharts(el, {
+        chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, height: 300 },
+        series: [{ name: 'En gestion', data: values }],
+        xaxis: { categories: labels, labels: { rotate: -35, style: { colors: '#94a3b8' } } },
+        yaxis: { labels: { style: { colors: '#94a3b8' } } },
+        plotOptions: { bar: { borderRadius: 6, columnWidth: '55%' } },
+        grid: { borderColor: 'rgba(59,130,246,.2)' },
+        dataLabels: { enabled: false },
+        colors: ['#2563eb'],
+        theme: { mode: 'dark' }
+      }).render();
+    }
+
+    function mountFlowDetailsModal() {
+      const modal = document.querySelector('#flow-details-modal');
+      if (!modal) return;
+
+      const cardButtons = document.querySelectorAll('.kanban-flow-card');
+      const closeButtons = modal.querySelectorAll('[data-modal-close]');
+      const fields = {
+        clinic: modal.querySelector('[data-modal-field="clinic"]'),
+        phone: modal.querySelector('[data-modal-field="phone"]'),
+        stage: modal.querySelector('[data-modal-field="stage"]'),
+        status: modal.querySelector('[data-modal-field="status"]'),
+        chat: modal.querySelector('[data-modal-field="chat"]'),
+        transition: modal.querySelector('[data-modal-field="transition"]'),
+        updated: modal.querySelector('[data-modal-field="updated"]'),
+        handoff: modal.querySelector('[data-modal-field="handoff"]')
+      };
+
+      function openModal(button) {
+        fields.clinic.textContent = button.dataset.clinic || '-';
+        fields.phone.textContent = button.dataset.phone || '-';
+        fields.stage.textContent = button.dataset.stage || '-';
+        fields.status.textContent = button.dataset.status || '-';
+        fields.chat.textContent = button.dataset.chat || '-';
+        fields.transition.textContent = button.dataset.transition || '-';
+        fields.updated.textContent = button.dataset.updated || '-';
+        fields.handoff.textContent = button.dataset.handoff || '-';
+
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden', 'false');
+      }
+
+      function closeModal() {
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+
+      cardButtons.forEach((button) => {
+        button.addEventListener('click', () => openModal(button));
+      });
+
+      closeButtons.forEach((button) => {
+        button.addEventListener('click', closeModal);
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && modal.classList.contains('open')) {
+          closeModal();
+        }
+      });
+    }
+
+    mountSampleStatus();
+    mountServiceAreas();
+    mountAnalysisTop();
+    mountFlowDetailsModal();
+  </script>
+</body>
+</html>

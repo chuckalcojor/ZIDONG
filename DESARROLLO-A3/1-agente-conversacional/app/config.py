@@ -1,0 +1,50 @@
+from dataclasses import dataclass
+import os
+
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+
+def required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required env var: {name}")
+    return value
+
+
+@dataclass
+class Settings:
+    app_env: str
+    app_timezone: str
+    cutoff_time: str
+    telegram_bot_token: str
+    telegram_webhook_secret: str
+    supabase_url: str
+    supabase_service_role_key: str
+    flask_secret_key: str
+    dashboard_admin_user: str
+    dashboard_admin_password: str
+    liveconnect_webhook_secret: str
+    anarvet_webhook_secret: str
+    openai_api_key: str
+    openai_model: str
+
+
+settings = Settings(
+    app_env=os.getenv("APP_ENV", "development"),
+    app_timezone=os.getenv("APP_TIMEZONE", "America/Bogota"),
+    cutoff_time=os.getenv("CUTOFF_TIME", "17:30"),
+    telegram_bot_token=required_env("TELEGRAM_BOT_TOKEN"),
+    telegram_webhook_secret=required_env("TELEGRAM_WEBHOOK_SECRET"),
+    supabase_url=required_env("SUPABASE_URL"),
+    supabase_service_role_key=required_env("SUPABASE_SERVICE_ROLE_KEY"),
+    flask_secret_key=os.getenv("FLASK_SECRET_KEY", "dev-only-change-me"),
+    dashboard_admin_user=os.getenv("DASHBOARD_ADMIN_USER", "admin"),
+    dashboard_admin_password=os.getenv("DASHBOARD_ADMIN_PASSWORD", "admin123"),
+    liveconnect_webhook_secret=os.getenv("LIVECONNECT_WEBHOOK_SECRET", ""),
+    anarvet_webhook_secret=os.getenv("ANARVET_WEBHOOK_SECRET", ""),
+    openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+    openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+)
