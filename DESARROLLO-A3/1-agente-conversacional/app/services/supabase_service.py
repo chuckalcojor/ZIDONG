@@ -129,6 +129,20 @@ class SupabaseService:
                 return None
             return rows[0].get("courier_id")
 
+    def get_assigned_courier(self, client_id: str) -> dict[str, Any] | None:
+        params = {
+            "client_id": f"eq.{client_id}",
+            "select": "courier_id,couriers(id,name,phone,availability)",
+            "limit": "1",
+        }
+        rows = self.fetch_rows("client_courier_assignment", params)
+        if not rows:
+            return None
+        courier = rows[0].get("couriers") or {}
+        if isinstance(courier, dict) and courier.get("id"):
+            return courier
+        return None
+
     def create_request(self, payload: dict[str, Any]) -> dict[str, Any]:
         headers = {**self.headers, "Prefer": "return=representation"}
         with httpx.Client(timeout=20) as client:
@@ -202,6 +216,38 @@ class SupabaseService:
             "limit": str(limit),
         }
         return self.fetch_rows("analysis_catalog", params)
+
+    def search_a3_knowledge_by_clinic_name(
+        self, clinic_name: str, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        safe_name = (clinic_name or "").replace("%", "").replace("_", "").strip()
+        if not safe_name:
+            return []
+        params = {
+            "clinic_name": f"ilike.*{safe_name}*",
+            "select": "clinic_key,clinic_name,is_registered,is_new_client,address,locality,phone,email,payment_policy,result_delivery_mode",
+            "order": "clinic_name.asc",
+            "limit": str(limit),
+        }
+        return self.fetch_rows("clients_a3_knowledge", params)
+
+    def list_a3_professionals(self, clinic_key: str, limit: int = 20) -> list[dict[str, Any]]:
+        params = {
+            "clinic_key": f"eq.{clinic_key}",
+            "select": "professional_name,professional_card,source_sheet",
+            "order": "professional_name.asc",
+            "limit": str(limit),
+        }
+        return self.fetch_rows("clients_a3_professionals", params)
+
+    def list_a3_sample_events(self, clinic_key: str, limit: int = 200) -> list[dict[str, Any]]:
+        params = {
+            "clinic_key": f"eq.{clinic_key}",
+            "select": "status_bucket,reason,patient_name,exam_number,pending_exam,source_sheet,synced_at",
+            "order": "synced_at.desc",
+            "limit": str(limit),
+        }
+        return self.fetch_rows("clients_a3_sample_events", params)
 
     def get_telegram_session(self, chat_id: str) -> dict[str, Any] | None:
         params = {

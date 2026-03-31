@@ -28,6 +28,7 @@ class Settings:
     dashboard_admin_password: str
     liveconnect_webhook_secret: str
     anarvet_webhook_secret: str
+    new_client_form_webhook_secret: str
     openai_api_key: str
     openai_model: str
 
@@ -45,6 +46,7 @@ settings = Settings(
     dashboard_admin_password=os.getenv("DASHBOARD_ADMIN_PASSWORD", "admin123"),
     liveconnect_webhook_secret=os.getenv("LIVECONNECT_WEBHOOK_SECRET", ""),
     anarvet_webhook_secret=os.getenv("ANARVET_WEBHOOK_SECRET", ""),
+    new_client_form_webhook_secret=os.getenv("NEW_CLIENT_FORM_WEBHOOK_SECRET", ""),
     openai_api_key=os.getenv("OPENAI_API_KEY", ""),
     openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
 )

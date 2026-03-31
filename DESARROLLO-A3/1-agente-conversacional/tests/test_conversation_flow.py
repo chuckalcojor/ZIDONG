@@ -7,9 +7,15 @@ class FakeSupabase:
     def __init__(self) -> None:
         self.sessions: dict[str, dict] = {}
         self.message_events: list[dict] = []
+        self.request_events: list[dict] = []
+        self.requests_by_id: dict[str, dict] = {}
         self.request_counter = 0
         self.clients_by_tax: dict[str, dict] = {}
         self.clients: list[dict] = []
+        self.knowledge_clients: list[dict] = []
+        self.knowledge_sample_events: dict[str, list[dict]] = {}
+        self.table_rows: dict[str, list[dict]] = {}
+        self.client_courier_map: dict[str, dict] = {}
 
     def get_client_by_phone(self, phone: str):
         for client in self.clients:
@@ -28,6 +34,19 @@ class FakeSupabase:
             if needle and needle in (client.get("clinic_name") or "").lower()
         ]
         return matches[:limit]
+
+    def search_a3_knowledge_by_clinic_name(self, clinic_name: str, limit: int = 5):
+        needle = (clinic_name or "").strip().lower()
+        matches = [
+            row
+            for row in self.knowledge_clients
+            if needle and needle in (row.get("clinic_name") or "").lower()
+        ]
+        return matches[:limit]
+
+    def list_a3_sample_events(self, clinic_key: str, limit: int = 200):
+        rows = self.knowledge_sample_events.get(clinic_key, [])
+        return rows[:limit]
 
     def get_telegram_session(self, chat_id: str):
         return self.sessions.get(chat_id)
@@ -48,17 +67,46 @@ class FakeSupabase:
 
     def create_request(self, payload: dict):
         self.request_counter += 1
-        return {"id": f"req-{self.request_counter}", **payload}
+        created = {"id": f"req-{self.request_counter}", **payload}
+        self.requests_by_id[created["id"]] = created
+        return created
 
     def create_request_event(self, request_id: str, event_type: str, event_payload: dict):
-        return {
+        event = {
             "request_id": request_id,
             "event_type": event_type,
             "event_payload": event_payload,
         }
+        self.request_events.append(event)
+        return event
+
+    def update_request(self, request_id: str, payload: dict):
+        existing = self.requests_by_id.get(request_id, {"id": request_id})
+        existing.update(payload)
+        self.requests_by_id[request_id] = existing
+        return existing
+
+    def get_assigned_courier(self, client_id: str):
+        return self.client_courier_map.get(client_id)
 
     def create_conversation_stage_event(self, payload: dict):
         return payload
+
+    def insert_rows(self, table: str, rows: list[dict], upsert: bool = False, on_conflict: str | None = None):
+        bucket = self.table_rows.setdefault(table, [])
+        if table == "clients_a3_knowledge":
+            for row in rows:
+                clinic_key = row.get("clinic_key")
+                if clinic_key:
+                    self.knowledge_clients = [
+                        existing for existing in self.knowledge_clients if existing.get("clinic_key") != clinic_key
+                    ]
+                    self.knowledge_clients.append(dict(row))
+        for row in rows:
+            bucket.append(dict(row))
+            if table == "clients":
+                self.clients.append(dict(row))
+        return rows
 
 
 class FakeTelegram:
@@ -127,6 +175,7 @@ class ConversationFlowTests(unittest.TestCase):
         self.original_supabase = main.supabase
         self.original_telegram = main.telegram
         self.original_openai = main.openai_service
+        self.original_new_client_secret = main.settings.new_client_form_webhook_secret
 
         self.fake_supabase = FakeSupabase()
         self.fake_telegram = FakeTelegram()
@@ -137,6 +186,7 @@ class ConversationFlowTests(unittest.TestCase):
         main.supabase = self.original_supabase
         main.telegram = self.original_telegram
         main.openai_service = self.original_openai
+        main.settings.new_client_form_webhook_secret = self.original_new_client_secret
 
     def test_first_turn_sends_welcome(self) -> None:
         main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
@@ -381,6 +431,56 @@ class ConversationFlowTests(unittest.TestCase):
         stored = self.fake_supabase.sessions["109"]
         self.assertEqual(stored["captured_fields"].get("sample_reference"), "12345")
 
+    def test_results_non_canonical_next_action_is_normalized(self) -> None:
+        self.fake_supabase.sessions["1091"] = make_session(1091)
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="resultados",
+                service_area="results",
+                next_action="Solicitar identificacion de la muestra o mascota para consulta de resultados.",
+                phase_current="fase_1_clasificacion",
+                phase_next="fase_2_recogida_datos",
+                missing_fields=["numero de muestra o nombre mascota"],
+                reply="Perfecto, vamos a consultar resultados.",
+            )
+        )
+
+        main.handle_telegram_message(1091, "consulta de resultados")
+
+        stored = self.fake_supabase.sessions["1091"]
+        self.assertEqual(stored["service_area"], "results")
+        self.assertEqual(stored["next_action"], "continuar_conversacion")
+
+    def test_route_non_canonical_next_action_is_normalized(self) -> None:
+        self.fake_supabase.sessions["1092"] = make_session(
+            1092,
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            client_id="client-1",
+            captured_fields={
+                "clinic_name": "Terra Pets",
+                "pickup_address": "CL 2 87F 31",
+            },
+        )
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="programacion_rutas",
+                service_area="route_scheduling",
+                next_action="Confirmar direccion de retiro con el cliente",
+                phase_current="fase_3_validacion",
+                phase_next="fase_4_confirmacion",
+                missing_fields=[],
+                reply="Perfecto, confirmemos direccion.",
+            )
+        )
+
+        main.handle_telegram_message(1092, "programar recogida")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        stored = self.fake_supabase.sessions["1092"]
+        self.assertEqual(stored["next_action"], "confirmar_direccion_retiro")
+        self.assertIn("confirmas que el retiro es", sent)
+
     def test_unknown_intent_triggers_clarification_message(self) -> None:
         self.fake_supabase.sessions["110"] = make_session(110)
         main.openai_service = FakeOpenAI(
@@ -394,6 +494,411 @@ class ConversationFlowTests(unittest.TestCase):
         )
         main.handle_telegram_message(110, "necesito algo")
         self.assertEqual(self.fake_telegram.messages[-1][1], main.INTENT_CLARIFICATION_MESSAGE)
+
+    def test_clarification_menu_includes_six_options(self) -> None:
+        menu = main.INTENT_CLARIFICATION_MESSAGE
+        self.assertIn("1. Programar recogida de muestras", menu)
+        self.assertIn("2. Consulta de resultados", menu)
+        self.assertIn("3. Aclara tus pagos", menu)
+        self.assertIn("4. ¿Eres cliente nuevo?", menu)
+        self.assertIn("5. PQRS", menu)
+        self.assertIn("6. Otras consultas", menu)
+
+    def test_pqrs_option_shares_link_and_returns_menu(self) -> None:
+        self.fake_supabase.sessions["117"] = make_session(117)
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="no_clasificado",
+                service_area="unknown",
+                phase_current="fase_1_clasificacion",
+                phase_next="fase_2_recogida_datos",
+                reply="Entiendo.",
+            )
+        )
+
+        main.handle_telegram_message(117, "pqrs")
+
+        self.assertGreaterEqual(len(self.fake_telegram.messages), 2)
+        first_reply = self.fake_telegram.messages[-2][1]
+        second_reply = self.fake_telegram.messages[-1][1]
+        self.assertIn(main.PQRS_LINK_URL, first_reply)
+        self.assertEqual(second_reply, main.INTENT_CLARIFICATION_MESSAGE)
+
+    def test_other_queries_option_requests_detail(self) -> None:
+        self.fake_supabase.sessions["118"] = make_session(118)
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="no_clasificado",
+                service_area="unknown",
+                phase_current="fase_1_clasificacion",
+                phase_next="fase_2_recogida_datos",
+                reply="Entiendo.",
+            )
+        )
+
+        main.handle_telegram_message(118, "otras consultas")
+
+        self.assertEqual(self.fake_telegram.messages[-1][1], main.OTHER_QUERIES_MESSAGE)
+        stored = self.fake_supabase.sessions["118"]
+        self.assertEqual(stored["next_action"], "atender_otra_consulta")
+
+    def test_numeric_menu_option_routes_to_pickup_flow(self) -> None:
+        self.fake_supabase.sessions["119"] = make_session(119)
+        main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
+
+        main.handle_telegram_message(119, "1")
+
+        self.assertEqual(self.fake_telegram.messages[-1][1], main.ROUTE_CLIENT_IDENTIFICATION_MESSAGE)
+        stored = self.fake_supabase.sessions["119"]
+        self.assertEqual(stored["service_area"], "route_scheduling")
+
+    def test_route_can_progress_with_clinic_found_in_knowledge_index(self) -> None:
+        self.fake_supabase.sessions["120"] = make_session(120)
+        self.fake_supabase.knowledge_clients = [
+            {
+                "clinic_key": "animal consult",
+                "clinic_name": "Animal Consult",
+                "address": "Cra 10 # 20-30",
+                "phone": "3000000000",
+            }
+        ]
+        main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
+
+        main.handle_telegram_message(120, "quiero programar recogida, mi veterinaria es animal consult")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("confirmas que el retiro es", sent)
+        self.assertNotEqual(self.fake_telegram.messages[-1][1], main.ROUTE_CLIENT_IDENTIFICATION_MESSAGE)
+        stored = self.fake_supabase.sessions["120"]
+        self.assertEqual(stored["service_area"], "route_scheduling")
+        self.assertEqual(stored["captured_fields"].get("clinic_name"), "Animal Consult")
+
+    def test_results_uses_knowledge_summary_when_clinic_detected(self) -> None:
+        self.fake_supabase.sessions["121"] = make_session(
+            121,
+            captured_fields={
+                "clinic_name": "My Pet City",
+                "knowledge_clinic_key": "my pet city",
+            },
+        )
+        self.fake_supabase.knowledge_sample_events = {
+            "my pet city": [
+                {"status_bucket": "pending_issue", "reason": "No Envian"},
+                {"status_bucket": "pending_issue", "reason": "No Envian"},
+                {"status_bucket": "submitted", "reason": ""},
+            ]
+        }
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="resultados",
+                service_area="results",
+                phase_current="fase_1_clasificacion",
+                phase_next="fase_2_recogida_datos",
+                missing_fields=["numero de muestra o nombre mascota"],
+                reply="Te ayudo con resultados.",
+            )
+        )
+
+        main.handle_telegram_message(121, "consulta de resultados")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("trazabilidad", sent)
+        self.assertIn("novedad", sent)
+        self.assertIn("numero de muestra", sent)
+
+    def test_route_confirmation_creates_mock_submission_event(self) -> None:
+        self.fake_supabase.sessions["122"] = make_session(
+            122,
+            client_id="client-1",
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="confirmar_direccion_retiro",
+            captured_fields={
+                "clinic_name": "Vet Norte",
+                "pickup_address": "Cra 10 # 12-34",
+            },
+        )
+        self.fake_supabase.clients.append(
+            {
+                "id": "client-1",
+                "clinic_name": "Vet Norte",
+                "address": "Cra 10 # 12-34",
+                "phone": "+573001112233",
+                "tax_id": "900123456",
+            }
+        )
+        self.fake_supabase.client_courier_map["client-1"] = {
+            "id": "courier-1",
+            "name": "Alexander",
+            "phone": "000123",
+            "availability": "available",
+        }
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="programacion_rutas",
+                service_area="route_scheduling",
+                phase_current="fase_4_confirmacion",
+                phase_next="fase_5_programacion_ruta",
+                next_action="confirmar_programacion_ruta",
+                missing_fields=[],
+                reply="Listo, tu solicitud de retiro de muestra quedo programada.",
+            )
+        )
+
+        main.handle_telegram_message(122, "si confirmo")
+
+        event_types = [row["event_type"] for row in self.fake_supabase.request_events]
+        self.assertIn("route_form_mock_submitted", event_types)
+        self.assertIn("assignment_result", event_types)
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("mensajero asignado", sent)
+
+    def test_route_negative_confirmation_requests_updated_address(self) -> None:
+        self.fake_supabase.sessions["123"] = make_session(
+            123,
+            client_id="client-1",
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="confirmar_direccion_retiro",
+            captured_fields={
+                "clinic_name": "Vet Norte",
+                "pickup_address": "Cra 10 # 12-34",
+            },
+        )
+        self.fake_supabase.clients.append(
+            {
+                "id": "client-1",
+                "clinic_name": "Vet Norte",
+                "address": "Cra 10 # 12-34",
+                "phone": "+573001112233",
+                "tax_id": "900123456",
+            }
+        )
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="programacion_rutas",
+                service_area="route_scheduling",
+                phase_current="fase_4_confirmacion",
+                phase_next="fase_5_programacion_ruta",
+                next_action="confirmar_direccion_retiro",
+                missing_fields=["confirmacion de direccion"],
+                reply="Perfecto, te ayudo con la programacion de ruta.",
+            )
+        )
+
+        main.handle_telegram_message(123, "no, cambiar direccion")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("direccion actual", sent)
+        stored = self.fake_supabase.sessions["123"]
+        self.assertEqual(stored["next_action"], "solicitar_direccion_actualizada")
+
+    def test_route_already_programmed_does_not_repeat_address_confirmation(self) -> None:
+        self.fake_supabase.sessions["124"] = make_session(
+            124,
+            client_id="client-1",
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="confirmar_programacion_ruta",
+            captured_fields={
+                "clinic_name": "Terra Pets",
+                "pickup_address": "CL 2 87F 31",
+            },
+            last_bot_message="Listo, tu solicitud de retiro de muestra quedo programada.",
+        )
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="programacion_rutas",
+                service_area="route_scheduling",
+                phase_current="fase_6_cierre",
+                phase_next="fase_6_cierre",
+                next_action="continuar_conversacion",
+                missing_fields=[],
+                reply="Perfecto, te ayudo con eso.",
+            )
+        )
+
+        main.handle_telegram_message(124, "si ya lo tengo")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("ya quedó programada", sent)
+        self.assertNotIn("confirmas que el retiro", sent)
+        self.assertNotIn("recordatorio", sent)
+        stored = self.fake_supabase.sessions["124"]
+        self.assertEqual(stored["next_action"], "continuar_conversacion")
+
+    def test_route_affirmative_phrase_with_registered_address_confirms_schedule(self) -> None:
+        self.fake_supabase.sessions["127"] = make_session(
+            127,
+            client_id="client-1",
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="confirmar_direccion_retiro",
+            captured_fields={
+                "clinic_name": "Terra Pets",
+                "pickup_address": "CL 2 87F 31",
+            },
+        )
+        self.fake_supabase.clients.append(
+            {
+                "id": "client-1",
+                "clinic_name": "Terra Pets",
+                "address": "CL 2 87F 31",
+                "phone": "+573001112233",
+                "tax_id": "1070977829-7",
+            }
+        )
+        self.fake_supabase.client_courier_map["client-1"] = {
+            "id": "courier-1",
+            "name": "Alexander",
+            "phone": "000123",
+            "availability": "available",
+        }
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="programacion_rutas",
+                service_area="route_scheduling",
+                phase_current="fase_2_recogida_datos",
+                phase_next="fase_3_validacion",
+                missing_fields=["direccion de recogida"],
+                next_action="solicitar_nif_o_nombre_fiscal",
+                reply="Perfecto, te ayudo con eso.",
+            )
+        )
+
+        main.handle_telegram_message(127, "ya tienen mi direccion registrada")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("quedo programada", sent)
+        stored = self.fake_supabase.sessions["127"]
+        self.assertEqual(stored["next_action"], "confirmar_programacion_ruta")
+
+    def test_route_continuar_conversacion_state_does_not_reopen_confirmation(self) -> None:
+        self.fake_supabase.sessions["128"] = make_session(
+            128,
+            client_id="client-1",
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="continuar_conversacion",
+            status="confirmed",
+            captured_fields={
+                "clinic_name": "Terra Pets",
+                "pickup_address": "CL 2 87F 31",
+                "pickup_address_confirmed": "true",
+            },
+        )
+        main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
+
+        main.handle_telegram_message(128, "si ya lo tengo")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("ya quedó programada", sent)
+        self.assertNotIn("confirmas que el retiro", sent)
+        stored = self.fake_supabase.sessions["128"]
+        self.assertEqual(stored["next_action"], "continuar_conversacion")
+
+    def test_route_continuar_conversacion_allows_price_inquiry_switch(self) -> None:
+        self.fake_supabase.sessions["129"] = make_session(
+            129,
+            client_id="client-1",
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="continuar_conversacion",
+            status="confirmed",
+            captured_fields={
+                "clinic_name": "Terra Pets",
+                "pickup_address": "CL 2 87F 31",
+                "pickup_address_confirmed": "true",
+            },
+        )
+        main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
+
+        main.handle_telegram_message(129, "cuanto salen sus servicios")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("servicios", sent)
+        stored = self.fake_supabase.sessions["129"]
+        self.assertEqual(stored["service_area"], "unknown")
+        self.assertEqual(stored["next_action"], "atender_otra_consulta")
+
+    def test_route_identification_invalid_attempts_escalate_guidance(self) -> None:
+        self.fake_supabase.sessions["125"] = make_session(
+            125,
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="solicitar_nif_o_nombre_fiscal",
+        )
+        main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
+
+        main.handle_telegram_message(125, "zida")
+        first = self.fake_telegram.messages[-1][1]
+        main.handle_telegram_message(125, "zida")
+        second = self.fake_telegram.messages[-1][1]
+
+        self.assertNotEqual(first, second)
+        self.assertIn("nif", second.lower())
+        self.assertIn("nombre fiscal", second.lower())
+
+    def test_route_identification_price_question_switches_context(self) -> None:
+        self.fake_supabase.sessions["126"] = make_session(
+            126,
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="solicitar_nif_o_nombre_fiscal",
+        )
+        main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
+
+        main.handle_telegram_message(126, "cuanto salen sus servicios")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("servicios", sent)
+        stored = self.fake_supabase.sessions["126"]
+        self.assertEqual(stored["next_action"], "atender_otra_consulta")
+
+    def test_extract_clinic_hint_from_nombre_de_veterinaria_phrase(self) -> None:
+        hint = main.extract_clinic_name_hint("si estoy registrado, mi nombre de veterinaria es terra pets")
+        self.assertEqual(hint, "terra pets")
+
+    def test_new_client_registration_webhook_syncs_to_supabase_tables(self) -> None:
+        main.settings.new_client_form_webhook_secret = "secret-a3"
+        client = main.app.test_client()
+
+        payload = {
+            "Nombre de la veterinaria o medico veterinario": "Clinica Vet Norte",
+            "Direccion y ubicacion en Google Maps": "Cra 12 # 34-56",
+            "Barrio y Localidad": "Kennedy",
+            "N Celular": "3001234567",
+            "Email": "vetnorte@example.com",
+            "Medico Veterinario": "Dra Paula Rios",
+            "N Tarjeta Profesional": "TP-9988",
+            "Rut": "900123456",
+        }
+
+        response = client.post(
+            "/webhooks/new-client-registration",
+            json=payload,
+            headers={"X-New-Client-Secret": "secret-a3"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertTrue(body.get("ok"))
+        self.assertEqual(body.get("registered_in_clients"), True)
+        self.assertTrue(self.fake_supabase.table_rows.get("clients_a3_knowledge"))
+        self.assertTrue(self.fake_supabase.table_rows.get("clients_a3_professionals"))
+        self.assertTrue(self.fake_supabase.table_rows.get("clients"))
+
+    def test_new_client_registration_webhook_rejects_invalid_secret(self) -> None:
+        main.settings.new_client_form_webhook_secret = "secret-a3"
+        client = main.app.test_client()
+
+        response = client.post(
+            "/webhooks/new-client-registration",
+            json={"Nombre de la veterinaria o medico veterinario": "Clinica Vet Norte"},
+            headers={"X-New-Client-Secret": "otro-secret"},
+        )
+
+        self.assertEqual(response.status_code, 401)
 
     def test_greeting_only_does_not_force_previous_results_context(self) -> None:
         self.fake_supabase.sessions["112"] = make_session(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import hashlib
 from collections import Counter
 from datetime import datetime
 from functools import wraps
@@ -72,10 +73,26 @@ VALID_MESSAGE_MODES = {
     "intent_switch",
     "small_talk",
 }
+VALID_NEXT_ACTIONS = {
+    "continuar_conversacion",
+    "solicitar_clasificacion",
+    "solicitar_nif_o_nombre_fiscal",
+    "solicitar_cliente_y_direccion",
+    "confirmar_direccion_retiro",
+    "solicitar_direccion_actualizada",
+    "confirmar_programacion_ruta",
+    "compartir_formulario_registro_cliente",
+    "share_pqrs_link",
+    "atender_otra_consulta",
+}
 EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
     "route_scheduling": (
         "programacion de ruta",
         "programar ruta",
+        "programar recogida",
+        "programar recoleccion",
+        "agendar retiro",
+        "agendar recogida",
         "programar retiro",
         "programar un retiro",
         "quiero mandar a analizar una muestra",
@@ -97,6 +114,8 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
     "results": (
         "resultado",
         "resultados",
+        "consulta de resultados",
+        "consultar resultados",
         "estado de resultado",
         "estado de la muestra",
     ),
@@ -106,6 +125,10 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "facturacion",
         "cartera",
         "pago",
+        "pagos",
+        "cobro",
+        "deuda",
+        "financiera",
     ),
     "new_client": (
         "cliente nuevo",
@@ -115,6 +138,11 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "registrarse",
         "registrar cliente",
         "registro",
+        "darse de alta",
+        "darme de alta",
+        "no estoy registrado",
+        "no estoy registrada",
+        "no estoy en la base",
         "primera vez",
     ),
 }
@@ -148,10 +176,21 @@ INITIAL_GREETING_MESSAGE_NO_QUESTION = (
 )
 INTENT_CLARIFICATION_MESSAGE = (
     "Para ayudarte mejor, cuéntame qué necesitas hoy:\n"
-    " - Que hagamos la programación de ruta (para retirar una muestra)\n"
-    " - Información sobre resultados\n"
-    " - Contacto con área de Contabilidad\n"
-    " - Registrarte como cliente nuevo (necesario si es la primera vez que requieres nuestros servicios)"
+    " 1. Programar recogida de muestras\n"
+    " 2. Consulta de resultados\n"
+    " 3. Aclara tus pagos\n"
+    " 4. ¿Eres cliente nuevo?\n"
+    " 5. PQRS\n"
+    " 6. Otras consultas"
+)
+PQRS_LINK_URL = "https://a3laboratorio.co/pqrs/"
+PQRS_MESSAGE = (
+    "Claro, para PQRS te invitamos a diligenciar el siguiente enlace: "
+    f"{PQRS_LINK_URL}"
+)
+OTHER_QUERIES_MESSAGE = (
+    "Perfecto, te ayudo con otras consultas. "
+    "Cuéntame tu pregunta con el mayor detalle posible y te orientaré de inmediato."
 )
 ROUTE_REMINDER_MESSAGE = (
     "Recordatorio: si ya cuentas con el formulario de remision de domicilios en fisico, "
@@ -175,7 +214,8 @@ NEW_CLIENT_REGISTRATION_MESSAGE = (
 )
 NEW_CLIENT_POST_REGISTRATION_MESSAGE = (
     "Genial, si ya estas registrado podemos proceder con la programacion de ruta o con lo que necesites. "
-    "¿Deseas programar una ruta, consultar resultados o hablar con contabilidad?"
+    "¿Deseas programar recogida de muestras, consulta de resultados, aclarar tus pagos, "
+    "consultar PQRS u otras consultas?"
 )
 NEW_CLIENT_POST_REGISTRATION_ROUTE_MESSAGE = (
     "Genial, retomemos la programacion de ruta que solicitaste. "
@@ -197,6 +237,26 @@ def flow_stage_label(stage_key: str | None) -> str:
 
 def normalize_text_value(text: str) -> str:
     return " ".join((text or "").strip().lower().split())
+
+
+def normalize_lookup_key(text: str) -> str:
+    base = normalize_text_value(text)
+    if not base:
+        return ""
+    translated = base.translate(
+        str.maketrans(
+            {
+                "á": "a",
+                "é": "e",
+                "í": "i",
+                "ó": "o",
+                "ú": "u",
+                "ñ": "n",
+            }
+        )
+    )
+    translated = re.sub(r"[^a-z0-9 ]", " ", translated)
+    return re.sub(r"\s+", " ", translated).strip()
 
 
 def normalize_intent_token(token: str) -> str:
@@ -226,6 +286,56 @@ def normalize_intent_token(token: str) -> str:
     elif len(normalized) > 3 and normalized.endswith("s"):
         normalized = normalized[:-1]
     return normalized
+
+
+def normalize_next_action_token(
+    next_action: str | None,
+    *,
+    service_area: str,
+    status: str,
+) -> str:
+    candidate = (next_action or "").strip()
+    if candidate in VALID_NEXT_ACTIONS:
+        return candidate
+
+    normalized = normalize_lookup_key(candidate)
+    if not normalized:
+        if service_area == "new_client":
+            return "compartir_formulario_registro_cliente"
+        if service_area == "unknown":
+            return "atender_otra_consulta"
+        return "continuar_conversacion"
+
+    if "pqrs" in normalized:
+        return "share_pqrs_link"
+    if "otra consulta" in normalized or "consulta general" in normalized:
+        return "atender_otra_consulta"
+    if "clasificacion" in normalized:
+        return "solicitar_clasificacion"
+    if "nif" in normalized or "nit" in normalized or "nombre fiscal" in normalized:
+        return "solicitar_nif_o_nombre_fiscal"
+    if "cliente" in normalized and "direccion" in normalized:
+        return "solicitar_cliente_y_direccion"
+    if "direccion" in normalized and "confirm" in normalized:
+        return "confirmar_direccion_retiro"
+    if "direccion" in normalized and ("actual" in normalized or "nueva" in normalized):
+        return "solicitar_direccion_actualizada"
+    if "program" in normalized and "confirm" in normalized:
+        return "confirmar_programacion_ruta"
+    if "registro" in normalized and "cliente" in normalized:
+        return "compartir_formulario_registro_cliente"
+    if "continu" in normalized:
+        return "continuar_conversacion"
+
+    if service_area == "route_scheduling":
+        if status in {"confirmed", "closed"}:
+            return "continuar_conversacion"
+        return "solicitar_cliente_y_direccion"
+    if service_area == "new_client":
+        return "compartir_formulario_registro_cliente"
+    if service_area == "unknown":
+        return "atender_otra_consulta"
+    return "continuar_conversacion"
 
 
 def extract_intent_tokens(text: str) -> set[str]:
@@ -280,6 +390,74 @@ def detect_explicit_service_area(text: str) -> str | None:
     return None
 
 
+def detect_numeric_menu_option(text: str) -> str | None:
+    normalized = normalize_text_value(text)
+    if not normalized:
+        return None
+
+    match = re.fullmatch(r"([1-6])[\).]?", normalized)
+    if not match:
+        return None
+
+    return {
+        "1": "route_scheduling",
+        "2": "results",
+        "3": "accounting",
+        "4": "new_client",
+        "5": "pqrs",
+        "6": "other_queries",
+    }.get(match.group(1))
+
+
+def detect_special_menu_option(text: str) -> str | None:
+    numeric_option = detect_numeric_menu_option(text)
+    if numeric_option in {"pqrs", "other_queries"}:
+        return numeric_option
+
+    normalized = normalize_text_value(text)
+    if not normalized:
+        return None
+
+    if "pqrs" in normalized:
+        return "pqrs"
+
+    pqrs_patterns = (
+        "queja",
+        "reclamo",
+        "peticion",
+        "sugerencia",
+        "felicitacion",
+        "radicar",
+    )
+    if any(pattern in normalized for pattern in pqrs_patterns):
+        return "pqrs"
+
+    other_queries_patterns = (
+        "otras consultas",
+        "otra consulta",
+        "consulta general",
+        "consulta adicional",
+        "consulta distinta",
+        "consulta no relacionada",
+        "otra duda",
+        "otra inquietud",
+        "otra pregunta",
+        "pregunta adicional",
+        "pregunta general",
+        "duda general",
+        "ayuda con informacion",
+        "quiero hacer una consulta",
+        "me ayudas con otra consulta",
+        "soporte general",
+        "orientacion general",
+        "informacion general",
+    )
+    if any(pattern in normalized for pattern in other_queries_patterns):
+        return "other_queries"
+
+    return None
+
+
 def is_small_talk_only(text: str) -> bool:
     normalized = normalize_text_value(text)
     if not normalized:
@@ -315,14 +493,46 @@ def is_affirmative_reply(text: str) -> bool:
     normalized = normalize_text_value(text)
     if not normalized:
         return False
-    return normalized in AFFIRMATIVE_TOKENS
+    if normalized in AFFIRMATIVE_TOKENS:
+        return True
+
+    words = normalized.split()
+    if not words:
+        return False
+
+    if words[0] in {"si", "s", "ok", "okay", "claro", "confirmo"}:
+        return True
+
+    if "de acuerdo" in normalized:
+        return True
+
+    if re.search(r"\bconfirmo\b", normalized):
+        return True
+
+    if re.search(r"\bcorrecto\b", normalized):
+        return True
+
+    if any(token in normalized for token in ("ya lo tengo", "ya la tengo", "ya tienen mi direccion")):
+        return True
+
+    return False
 
 
 def is_negative_reply(text: str) -> bool:
     normalized = normalize_text_value(text)
     if not normalized:
         return False
-    return normalized in NEGATIVE_TOKENS
+    if normalized in NEGATIVE_TOKENS:
+        return True
+
+    words = normalized.split()
+    if not words:
+        return False
+
+    if words[0] == "no":
+        return True
+
+    return any(token in normalized for token in ("cambiar", "cambia", "incorrect", "ajustar"))
 
 
 def is_help_inquiry(text: str) -> bool:
@@ -342,6 +552,26 @@ def is_help_inquiry(text: str) -> bool:
         "como me ayudas",
     )
     return any(token in normalized for token in help_tokens)
+
+
+def is_price_or_services_inquiry(text: str) -> bool:
+    normalized = normalize_text_value(text)
+    if not normalized:
+        return False
+
+    tokens = (
+        "cuanto",
+        "precio",
+        "precios",
+        "costos",
+        "costo",
+        "tarifa",
+        "tarifas",
+        "que puedo hacer",
+        "que servicios",
+        "servicios tienen",
+    )
+    return any(token in normalized for token in tokens)
 
 
 def should_split_first_greeting(text: str) -> bool:
@@ -492,6 +722,8 @@ def extract_clinic_name_hint(text: str) -> str | None:
 
     hint = raw
     prefixes = (
+        "mi nombre de veterinaria es",
+        "nombre de veterinaria",
         "mi veterinaria es",
         "la veterinaria es",
         "nombre fiscal",
@@ -501,13 +733,57 @@ def extract_clinic_name_hint(text: str) -> str | None:
     )
     lowered = raw.lower()
     for prefix in prefixes:
-        if lowered.startswith(prefix):
-            hint = raw[len(prefix) :].strip(" :,-")
+        idx = lowered.find(prefix)
+        if idx >= 0:
+            hint = raw[idx + len(prefix) :].strip(" :,-")
+            break
+
+    hint = re.sub(r"^es\s+", "", hint, flags=re.IGNORECASE).strip()
+
+    for separator in (" y ", ",", "."):
+        if separator in hint.lower():
+            hint = hint.split(separator, 1)[0].strip()
             break
 
     if len(hint) < 4:
         return None
     return hint
+
+
+def extract_form_value(payload: dict[str, Any], aliases: tuple[str, ...]) -> str:
+    if not isinstance(payload, dict):
+        return ""
+
+    normalized_items = []
+    for key, value in payload.items():
+        normalized_key = normalize_lookup_key(str(key))
+        if not normalized_key:
+            continue
+        normalized_items.append((normalized_key, value))
+
+    normalized_aliases = [normalize_lookup_key(alias) for alias in aliases if normalize_lookup_key(alias)]
+
+    for alias in normalized_aliases:
+        for key, value in normalized_items:
+            if key == alias:
+                return ("" if value is None else str(value)).strip()
+
+    for alias in normalized_aliases:
+        for key, value in normalized_items:
+            if alias in key:
+                return ("" if value is None else str(value)).strip()
+
+    return ""
+
+
+def ensure_dict_rows(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            rows.append(item)
+    return rows
 
 
 def identify_client_by_tax_id_or_clinic(incoming_text: str) -> dict[str, Any] | None:
@@ -527,9 +803,185 @@ def identify_client_by_tax_id_or_clinic(incoming_text: str) -> dict[str, Any] | 
         except httpx.HTTPStatusError:
             return None
         if len(matches) == 1:
-            return matches[0]
+            client_match = dict(matches[0])
+            if not is_meaningful_value(client_match.get("address")):
+                search_a3_knowledge = getattr(supabase, "search_a3_knowledge_by_clinic_name", None)
+                if callable(search_a3_knowledge):
+                    try:
+                        knowledge_rows = ensure_dict_rows(search_a3_knowledge(clinic_hint, limit=1))
+                    except httpx.HTTPStatusError:
+                        knowledge_rows = []
+                    if knowledge_rows:
+                        client_match["address"] = knowledge_rows[0].get("address")
+            return client_match
+
+        search_a3_knowledge = getattr(supabase, "search_a3_knowledge_by_clinic_name", None)
+        if callable(search_a3_knowledge):
+            try:
+                raw_matches = search_a3_knowledge(clinic_hint, limit=3)
+            except httpx.HTTPStatusError:
+                raw_matches = []
+
+            knowledge_matches = ensure_dict_rows(raw_matches)
+
+            if knowledge_matches:
+                best = knowledge_matches[0]
+                return {
+                    "id": None,
+                    "clinic_name": best.get("clinic_name"),
+                    "phone": best.get("phone"),
+                    "tax_id": None,
+                    "address": best.get("address"),
+                    "clinic_key": best.get("clinic_key"),
+                    "is_registered": bool(best.get("is_registered", False)),
+                    "is_new_client": bool(best.get("is_new_client", False)),
+                }
 
     return None
+
+
+def summarize_a3_sample_status(clinic_key: str) -> dict[str, Any] | None:
+    if not clinic_key:
+        return None
+
+    fetch_events = getattr(supabase, "list_a3_sample_events", None)
+    if not callable(fetch_events):
+        return None
+
+    try:
+        raw_rows = fetch_events(clinic_key, limit=250)
+    except httpx.HTTPStatusError:
+        return None
+
+    rows = ensure_dict_rows(raw_rows)
+
+    if not rows:
+        return None
+
+    status_counter = Counter((row.get("status_bucket") or "unknown") for row in rows)
+    reason_counter = Counter((row.get("reason") or "").strip() for row in rows if row.get("reason"))
+    top_reason = reason_counter.most_common(1)[0][0] if reason_counter else ""
+
+    return {
+        "submitted": status_counter.get("submitted", 0),
+        "pending_issue": status_counter.get("pending_issue", 0),
+        "top_reason": top_reason,
+    }
+
+
+def build_route_mock_idempotency_key(
+    *,
+    chat_id: int,
+    clinic_name: str,
+    pickup_address: str,
+    scheduled_pickup_date: str | None,
+) -> str:
+    seed = "|".join(
+        [
+            str(chat_id),
+            normalize_lookup_key(clinic_name),
+            normalize_lookup_key(pickup_address),
+            str(scheduled_pickup_date or ""),
+        ]
+    )
+    return hashlib.sha1(seed.encode("utf-8")).hexdigest()
+
+
+def submit_route_mock_record(
+    *,
+    chat_id: int,
+    request_id: str,
+    client_id: str | None,
+    captured_fields: dict[str, Any],
+    scheduled_pickup_date: str | None,
+) -> dict[str, Any]:
+    clinic_name = str(captured_fields.get("clinic_name") or "").strip()
+    pickup_address = str(captured_fields.get("pickup_address") or "").strip()
+    if not clinic_name or not pickup_address:
+        return {"submitted": False, "reason": "missing_clinic_or_address"}
+
+    courier_data = None
+    resolved_client_id = client_id
+
+    if not resolved_client_id:
+        try:
+            matches = supabase.search_clients_by_clinic_name(clinic_name, limit=1)
+        except httpx.HTTPStatusError:
+            matches = []
+        if len(matches) == 1:
+            resolved_client_id = matches[0].get("id")
+
+    if resolved_client_id:
+        try:
+            courier_data = supabase.get_assigned_courier(resolved_client_id)
+        except httpx.HTTPStatusError:
+            courier_data = None
+
+    courier_name = (
+        str(courier_data.get("name") or "").strip() if isinstance(courier_data, dict) else ""
+    )
+    now_iso = datetime.now().isoformat()
+    idempotency_key = build_route_mock_idempotency_key(
+        chat_id=chat_id,
+        clinic_name=clinic_name,
+        pickup_address=pickup_address,
+        scheduled_pickup_date=scheduled_pickup_date,
+    )
+
+    mock_payload = {
+        "idempotency_key": idempotency_key,
+        "requested_at": now_iso,
+        "programacion_ruta": clinic_name,
+        "direccion": pickup_address,
+        "barrio": captured_fields.get("pickup_neighborhood") or captured_fields.get("zone") or "",
+        "mensajero": courier_name,
+        "estado": "programada",
+        "observacion": "registro_automatico_sandbox",
+        "request_id": request_id,
+        "client_id": resolved_client_id,
+        "scheduled_pickup_date": scheduled_pickup_date,
+        "source": "telegram_bot_auto",
+    }
+
+    supabase.create_request_event(
+        request_id=request_id,
+        event_type="route_form_mock_submitted",
+        event_payload=mock_payload,
+    )
+
+    assignment_payload = {
+        "request_id": request_id,
+        "client_id": resolved_client_id,
+        "assigned_courier_id": courier_data.get("id") if isinstance(courier_data, dict) else None,
+        "priority": "normal",
+    }
+    assignment = assign_courier(assignment_payload)
+
+    supabase.update_request(
+        request_id,
+        {
+            "status": assignment.get("status") or "received",
+            "assigned_courier_id": assignment.get("courier_id"),
+            "fallback_reason": assignment.get("fallback_reason"),
+            "updated_at": now_iso,
+        },
+    )
+    supabase.create_request_event(
+        request_id=request_id,
+        event_type="assignment_result",
+        event_payload={
+            **assignment,
+            "courier_name": courier_name,
+            "idempotency_key": idempotency_key,
+        },
+    )
+
+    return {
+        "submitted": True,
+        "idempotency_key": idempotency_key,
+        "assigned": bool(assignment.get("assigned")),
+        "courier_name": courier_name,
+    }
 
 
 def get_message_from_update(update: dict[str, Any]) -> tuple[int, str]:
@@ -930,8 +1382,14 @@ def is_explicit_intent_switch(text: str) -> bool:
         "contabilidad",
         "resultados",
         "programacion de ruta",
+        "programar recogida de muestras",
+        "consulta de resultados",
+        "aclara tus pagos",
         "ruta",
         "cliente nuevo",
+        "eres cliente nuevo",
+        "pqrs",
+        "otras consultas",
     )
     has_trigger = any(token in normalized for token in explicit_triggers)
     has_area = any(token in normalized for token in areas)
@@ -1163,6 +1621,7 @@ def should_attach_route_reminder(
     phase_current: str,
     status: str,
     requires_handoff: bool,
+    next_action: str,
 ) -> bool:
     if is_first_turn or requires_handoff:
         return False
@@ -1171,6 +1630,8 @@ def should_attach_route_reminder(
         return False
 
     if status in {"confirmed", "closed"}:
+        if next_action == "continuar_conversacion":
+            return False
         return True
 
     return phase_current in {
@@ -1225,6 +1686,7 @@ def apply_route_conversation_guard(
         captured_fields["pickup_address"] = pickup_address
 
     last_action = (session or {}).get("next_action") or ""
+    last_status = (session or {}).get("status") or ""
     normalized_text = normalize_text_value(text)
 
     if last_action == "solicitar_direccion_actualizada" and normalized_text:
@@ -1251,6 +1713,36 @@ def apply_route_conversation_guard(
                 captured_fields,
             )
 
+        if is_negative_reply(text):
+            return (
+                "fase_2_recogida_datos",
+                "fase_3_validacion",
+                "in_progress",
+                "solicitar_direccion_actualizada",
+                ["direccion de recogida"],
+                captured_fields,
+            )
+
+    if last_action == "confirmar_programacion_ruta":
+        return (
+            "fase_6_cierre",
+            "fase_6_cierre",
+            "confirmed",
+            "continuar_conversacion",
+            [],
+            captured_fields,
+        )
+
+    if last_action == "continuar_conversacion" and last_status in {"confirmed", "closed"}:
+        return (
+            "fase_6_cierre",
+            "fase_6_cierre",
+            "confirmed",
+            "continuar_conversacion",
+            [],
+            captured_fields,
+        )
+
     if last_action == "solicitar_cliente_y_direccion" and normalized_text:
         clinic_from_text, address_from_text = parse_clinic_and_address_from_text(text)
         if clinic_from_text and not captured_fields.get("clinic_name"):
@@ -1276,15 +1768,6 @@ def apply_route_conversation_guard(
             ["direccion de recogida"],
             captured_fields,
         )
-        if is_negative_reply(text):
-            return (
-                "fase_2_recogida_datos",
-                "fase_3_validacion",
-                "in_progress",
-                "solicitar_direccion_actualizada",
-                ["direccion de recogida"],
-                captured_fields,
-            )
 
     if pickup_address:
         return (
@@ -1430,6 +1913,10 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         intent = "no_clasificado"
     service_area = turn.get("service_area") or map_intent_to_service_area(intent)
     explicit_area = detect_explicit_service_area(text)
+    numeric_menu_option = detect_numeric_menu_option(text)
+    if numeric_menu_option in {"route_scheduling", "results", "accounting", "new_client"}:
+        explicit_area = numeric_menu_option
+
     if explicit_area and service_area != explicit_area:
         service_area = explicit_area
         intent = {
@@ -1438,6 +1925,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             "accounting": "contabilidad",
             "new_client": "alta_cliente",
         }.get(explicit_area, intent)
+
     phase_current = turn.get("phase_current", "fase_1_clasificacion")
     phase_next = turn.get("phase_next", "fase_2_recogida_datos")
     status = turn.get("status", "in_progress")
@@ -1449,10 +1937,45 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     message_mode = turn.get("message_mode", "flow_progress")
     if message_mode not in VALID_MESSAGE_MODES:
         message_mode = "flow_progress"
+    next_action = normalize_next_action_token(
+        next_action,
+        service_area=service_area,
+        status=status,
+    )
     resume_prompt = (turn.get("resume_prompt") or "").strip()
     confidence = turn.get("confidence", 0.5)
     reply = (turn.get("reply") or "Gracias. Te ayudo con eso.").strip()
     follow_up_message = ""
+
+    special_menu_option = detect_special_menu_option(text)
+    if special_menu_option == "pqrs":
+        intent = "no_clasificado"
+        service_area = "unknown"
+        phase_current = "fase_1_clasificacion"
+        phase_next = "fase_2_recogida_datos"
+        status = "in_progress"
+        missing_fields = []
+        requires_handoff = False
+        handoff_area = "none"
+        next_action = "share_pqrs_link"
+        message_mode = "intent_switch"
+        resume_prompt = ""
+        reply = PQRS_MESSAGE
+        follow_up_message = INTENT_CLARIFICATION_MESSAGE
+
+    if special_menu_option == "other_queries":
+        intent = "no_clasificado"
+        service_area = "unknown"
+        phase_current = "fase_1_clasificacion"
+        phase_next = "fase_2_recogida_datos"
+        status = "in_progress"
+        missing_fields = []
+        requires_handoff = False
+        handoff_area = "none"
+        next_action = "atender_otra_consulta"
+        message_mode = "intent_switch"
+        resume_prompt = ""
+        reply = OTHER_QUERIES_MESSAGE
 
     if not isinstance(captured_fields, dict):
         captured_fields = {}
@@ -1465,6 +1988,9 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
 
     if session and intent_changed and message_mode != "intent_switch":
         explicit_area = detect_explicit_service_area(text)
+        numeric_menu_option = detect_numeric_menu_option(text)
+        if numeric_menu_option in {"route_scheduling", "results", "accounting", "new_client"}:
+            explicit_area = numeric_menu_option
         pending_identifier = (session or {}).get("next_action") == "solicitar_nif_o_nombre_fiscal"
         if not is_explicit_intent_switch(text) and not explicit_area and not pending_identifier:
             message_mode = "side_question"
@@ -1512,6 +2038,47 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                     "y te confirmo enseguida."
                 )
 
+        if not captured_fields.get("clinic_name"):
+            clinic_hint = extract_clinic_name_hint(text)
+            if clinic_hint:
+                search_a3_knowledge = getattr(supabase, "search_a3_knowledge_by_clinic_name", None)
+                if callable(search_a3_knowledge):
+                    try:
+                        raw_matches = search_a3_knowledge(clinic_hint, limit=1)
+                    except httpx.HTTPStatusError:
+                        raw_matches = []
+                    knowledge_matches = ensure_dict_rows(raw_matches)
+                    if knowledge_matches:
+                        first_match = knowledge_matches[0]
+                        clinic_name_match = (first_match.get("clinic_name") or "").strip()
+                        clinic_key_match = (first_match.get("clinic_key") or "").strip()
+                        if clinic_name_match:
+                            captured_fields["clinic_name"] = clinic_name_match
+                        if clinic_key_match:
+                            captured_fields["knowledge_clinic_key"] = clinic_key_match
+
+        clinic_key = str(captured_fields.get("knowledge_clinic_key") or "").strip()
+        if clinic_key and not captured_fields.get("sample_reference") and not captured_fields.get("order_reference"):
+            status_summary = summarize_a3_sample_status(clinic_key)
+            if status_summary:
+                submitted_count = int(status_summary.get("submitted", 0))
+                pending_count = int(status_summary.get("pending_issue", 0))
+                top_reason = str(status_summary.get("top_reason") or "").strip()
+                clinic_label = captured_fields.get("clinic_name") or "tu clinica"
+                if pending_count > 0:
+                    reason_suffix = f" Motivo mas frecuente: {top_reason}." if top_reason else ""
+                    reply = (
+                        f"Tengo trazabilidad reciente para {clinic_label}: "
+                        f"{pending_count} muestras con novedad y {submitted_count} registradas sin novedad.{reason_suffix} "
+                        "Si me compartes el numero de muestra u orden, te doy el estado puntual."
+                    )
+                else:
+                    reply = (
+                        f"Tengo trazabilidad reciente para {clinic_label}: "
+                        f"{submitted_count} registros sin novedades reportadas. "
+                        "Si me compartes el numero de muestra u orden, te doy el estado puntual."
+                    )
+
     if is_first_turn:
         if should_split_first_greeting(text):
             reply = INITIAL_GREETING_MESSAGE_NO_QUESTION
@@ -1555,6 +2122,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         and service_area == "route_scheduling"
         and not requires_handoff
         and not client_id
+        and not is_meaningful_value(captured_fields.get("clinic_name"))
         and reply != INTENT_CLARIFICATION_MESSAGE
     ):
         identified_client = identify_client_by_tax_id_or_clinic(text)
@@ -1584,75 +2152,192 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             missing_fields = []
             reply = NEW_CLIENT_REGISTRATION_MESSAGE
         else:
-            phase_current = "fase_2_recogida_datos"
-            phase_next = "fase_3_validacion"
-            status = "in_progress"
-            next_action = "solicitar_nif_o_nombre_fiscal"
-            message_mode = "flow_progress"
-            resume_prompt = ""
-            missing_fields = ["NIF o nombre fiscal de la veterinaria"]
-            reply = ROUTE_CLIENT_IDENTIFICATION_MESSAGE
+            attempts = int(captured_fields.get("route_identification_attempts", 0) or 0) + 1
+            captured_fields["route_identification_attempts"] = attempts
+
+            if is_price_or_services_inquiry(text) or is_help_inquiry(text):
+                service_area = "unknown"
+                intent = "no_clasificado"
+                phase_current = "fase_1_clasificacion"
+                phase_next = "fase_2_recogida_datos"
+                status = "in_progress"
+                next_action = "atender_otra_consulta"
+                message_mode = "intent_switch"
+                resume_prompt = ""
+                missing_fields = []
+                reply = (
+                    "Claro, puedo orientarte con servicios, precios aproximados y procesos del laboratorio. "
+                    "Cuéntame qué examen o necesidad tienes y te ayudo de inmediato."
+                )
+            elif attempts >= 3:
+                phase_current = "fase_2_recogida_datos"
+                phase_next = "fase_3_validacion"
+                status = "in_progress"
+                next_action = "solicitar_nif_o_nombre_fiscal"
+                message_mode = "flow_progress"
+                resume_prompt = ""
+                missing_fields = ["NIF o nombre fiscal de la veterinaria"]
+                reply = (
+                    "Aun no logro ubicar tu registro. Para continuar, envíame uno de estos datos:\n"
+                    "- NIF/NIT (ejemplo: 900123456)\n"
+                    "- Nombre de la veterinaria (ejemplo: Terra Pets)\n"
+                    "Si prefieres otra gestión, escribe 2, 3, 4, 5 o 6 del menú."
+                )
+            elif attempts == 2:
+                phase_current = "fase_2_recogida_datos"
+                phase_next = "fase_3_validacion"
+                status = "in_progress"
+                next_action = "solicitar_nif_o_nombre_fiscal"
+                message_mode = "flow_progress"
+                resume_prompt = ""
+                missing_fields = ["NIF o nombre fiscal de la veterinaria"]
+                reply = (
+                    "Para ubicarte rápido, compárteme por favor uno de estos datos:\n"
+                    "- NIF/NIT\n"
+                    "- Nombre fiscal de la veterinaria"
+                )
+            else:
+                phase_current = "fase_2_recogida_datos"
+                phase_next = "fase_3_validacion"
+                status = "in_progress"
+                next_action = "solicitar_nif_o_nombre_fiscal"
+                message_mode = "flow_progress"
+                resume_prompt = ""
+                missing_fields = ["NIF o nombre fiscal de la veterinaria"]
+                reply = ROUTE_CLIENT_IDENTIFICATION_MESSAGE
 
     if (
         not is_first_turn
         and service_area == "route_scheduling"
         and not requires_handoff
-        and client_id
+        and (client_id or is_meaningful_value(captured_fields.get("clinic_name")))
         and reply != INTENT_CLARIFICATION_MESSAGE
     ):
-        phase_current, phase_next, status, next_action, missing_fields, captured_fields = apply_route_conversation_guard(
-            session=session,
-            client=client,
-            text=text,
-            captured_fields=captured_fields,
-            phase_current=phase_current,
-            phase_next=phase_next,
-            status=status,
-            next_action=next_action,
-        )
+        last_session_action = (session or {}).get("next_action") or ""
+        explicit_switch_area = detect_explicit_service_area(text)
+        special_option = detect_special_menu_option(text)
 
-        if next_action == "confirmar_direccion_retiro":
-            clinic_label = captured_fields.get("clinic_name") or "tu veterinaria"
-            address_label = captured_fields.get("pickup_address") or "la direccion registrada"
-            reply = (
-                "Perfecto, te ayudo con la programacion de ruta para retirar la muestra. "
-                f"¿Confirmas que el retiro es para {clinic_label} en {address_label}?"
+        if last_session_action in {"confirmar_programacion_ruta", "continuar_conversacion"}:
+            if special_option == "pqrs":
+                intent = "no_clasificado"
+                service_area = "unknown"
+                phase_current = "fase_1_clasificacion"
+                phase_next = "fase_2_recogida_datos"
+                status = "in_progress"
+                next_action = "share_pqrs_link"
+                missing_fields = []
+                message_mode = "flow_progress"
+                resume_prompt = ""
+                reply = PQRS_MESSAGE
+                follow_up_message = INTENT_CLARIFICATION_MESSAGE
+            elif is_price_or_services_inquiry(text) or is_help_inquiry(text):
+                intent = "no_clasificado"
+                service_area = "unknown"
+                phase_current = "fase_1_clasificacion"
+                phase_next = "fase_2_recogida_datos"
+                status = "in_progress"
+                next_action = "atender_otra_consulta"
+                missing_fields = []
+                message_mode = "intent_switch"
+                resume_prompt = ""
+                reply = (
+                    "Claro, puedo orientarte con servicios, precios aproximados y procesos del laboratorio. "
+                    "Cuéntame qué examen o necesidad tienes y te ayudo de inmediato."
+                )
+            elif special_option == "other_queries":
+                intent = "no_clasificado"
+                service_area = "unknown"
+                phase_current = "fase_1_clasificacion"
+                phase_next = "fase_2_recogida_datos"
+                status = "in_progress"
+                next_action = "atender_otra_consulta"
+                missing_fields = []
+                message_mode = "intent_switch"
+                resume_prompt = ""
+                reply = OTHER_QUERIES_MESSAGE
+            elif explicit_switch_area and explicit_switch_area != "route_scheduling":
+                service_area = explicit_switch_area
+                intent = {
+                    "results": "resultados",
+                    "accounting": "contabilidad",
+                    "new_client": "alta_cliente",
+                }.get(explicit_switch_area, intent)
+
+                if service_area == "results":
+                    next_action = "continuar_conversacion"
+                    missing_fields = ["numero de muestra o nombre mascota"]
+                    reply = "Perfecto, te ayudo con resultados. Compárteme el número de muestra u orden."
+                elif service_area == "accounting":
+                    next_action = "continuar_conversacion"
+                    missing_fields = []
+                    reply = "Perfecto, te ayudo con pagos y contabilidad. Cuéntame el detalle de tu caso."
+                elif service_area == "new_client":
+                    next_action = "compartir_formulario_registro_cliente"
+                    missing_fields = []
+                    reply = NEW_CLIENT_REGISTRATION_MESSAGE
+
+        if "route_identification_attempts" in captured_fields:
+            captured_fields["route_identification_attempts"] = 0
+
+        if service_area == "route_scheduling":
+            phase_current, phase_next, status, next_action, missing_fields, captured_fields = apply_route_conversation_guard(
+                session=session,
+                client=client,
+                text=text,
+                captured_fields=captured_fields,
+                phase_current=phase_current,
+                phase_next=phase_next,
+                status=status,
+                next_action=next_action,
             )
-        elif next_action == "solicitar_direccion_actualizada":
-            reply = "Perfecto, por favor comparteme la direccion actual para programar el retiro."
-        elif next_action == "confirmar_programacion_ruta":
-            if (session or {}).get("next_action") == "solicitar_direccion_actualizada":
-                reply = (
-                    "Listo, registre la nueva direccion de retiro y tu solicitud quedo programada. "
-                    "Te confirmaremos cualquier novedad por este medio."
-                )
-            else:
-                reply = (
-                    "Listo, tu solicitud de retiro de muestra quedo programada. "
-                    "Te confirmaremos cualquier novedad por este medio."
-                )
-        else:
-            needs_clinic = not is_meaningful_value(captured_fields.get("clinic_name"))
-            needs_address = not is_meaningful_value(captured_fields.get("pickup_address"))
-            if needs_clinic and needs_address:
-                reply = (
-                    "Perfecto, te ayudo con la programacion de ruta para retirar la muestra. "
-                    "Por favor comparteme el nombre de la veterinaria y la direccion de retiro."
-                )
-            elif needs_address:
-                reply = "Perfecto, por favor comparteme la direccion de retiro para programar la ruta."
-            elif needs_clinic:
-                reply = "Perfecto, por favor confirmame el nombre de la veterinaria para continuar."
-            else:
+
+            if next_action == "confirmar_direccion_retiro":
                 clinic_label = captured_fields.get("clinic_name") or "tu veterinaria"
                 address_label = captured_fields.get("pickup_address") or "la direccion registrada"
                 reply = (
                     "Perfecto, te ayudo con la programacion de ruta para retirar la muestra. "
                     f"¿Confirmas que el retiro es para {clinic_label} en {address_label}?"
                 )
+            elif next_action == "solicitar_direccion_actualizada":
+                reply = "Perfecto, por favor comparteme la direccion actual para programar el retiro."
+            elif next_action == "confirmar_programacion_ruta":
+                if (session or {}).get("next_action") == "solicitar_direccion_actualizada":
+                    reply = (
+                        "Listo, registre la nueva direccion de retiro y tu solicitud quedo programada. "
+                        "Te confirmaremos cualquier novedad por este medio."
+                    )
+                else:
+                    reply = (
+                        "Listo, tu solicitud de retiro de muestra quedo programada. "
+                        "Te confirmaremos cualquier novedad por este medio."
+                    )
+            elif next_action == "continuar_conversacion":
+                reply = (
+                    "Tu solicitud ya quedó programada. "
+                    "Si deseas, puedo ayudarte ahora con resultados, pagos, PQRS u otra consulta."
+                )
+            else:
+                needs_clinic = not is_meaningful_value(captured_fields.get("clinic_name"))
+                needs_address = not is_meaningful_value(captured_fields.get("pickup_address"))
+                if needs_clinic and needs_address:
+                    reply = (
+                        "Perfecto, te ayudo con la programacion de ruta para retirar la muestra. "
+                        "Por favor comparteme el nombre de la veterinaria y la direccion de retiro."
+                    )
+                elif needs_address:
+                    reply = "Perfecto, por favor comparteme la direccion de retiro para programar la ruta."
+                elif needs_clinic:
+                    reply = "Perfecto, por favor confirmame el nombre de la veterinaria para continuar."
+                else:
+                    clinic_label = captured_fields.get("clinic_name") or "tu veterinaria"
+                    address_label = captured_fields.get("pickup_address") or "la direccion registrada"
+                    reply = (
+                        "Perfecto, te ayudo con la programacion de ruta para retirar la muestra. "
+                        f"¿Confirmas que el retiro es para {clinic_label} en {address_label}?"
+                    )
 
-        resume_prompt = ""
-        message_mode = "flow_progress"
+            resume_prompt = ""
+            message_mode = "flow_progress"
 
     if should_share_new_client_registration(
         service_area=service_area,
@@ -1706,6 +2391,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         phase_current=phase_current,
         status=status,
         requires_handoff=requires_handoff,
+        next_action=next_action,
     ):
         reply = append_route_reminder(reply)
 
@@ -1717,6 +2403,12 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             anti_loop_prompt = build_resume_question(missing_fields)
             if not anti_loop_prompt:
                 anti_loop_prompt = "Si te parece bien, avanzamos con este paso y lo dejamos listo."
+        elif service_area == "results":
+            reply = (
+                "Para ayudarte con resultados sin demoras, comparteme por favor el numero de muestra "
+                "o el numero de orden."
+            )
+            anti_loop_prompt = ""
         elif NEW_CLIENT_REGISTRATION_FORM_URL in reply:
             reply = (
                 "Cuando completes el formulario de registro, me avisas y te acompano "
@@ -1734,20 +2426,50 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     if phone and isinstance(captured_fields, dict) and "phone" not in captured_fields:
         captured_fields["phone"] = phone
 
+    scheduled_pickup_date = (
+        calculate_schedule(datetime.now().isoformat(), settings.cutoff_time)[
+            "scheduled_pickup_date"
+        ]
+        if service_area == "route_scheduling"
+        else None
+    )
+
     request_ref = create_base_request(
         client_id=client_id,
         service_area=service_area,
         intent=intent,
         priority="normal",
         pickup_address=None,
-        scheduled_pickup_date=(
-            calculate_schedule(datetime.now().isoformat(), settings.cutoff_time)[
-                "scheduled_pickup_date"
-            ]
-            if service_area == "route_scheduling"
-            else None
-        ),
+        scheduled_pickup_date=scheduled_pickup_date,
     )
+
+    automation_note = ""
+    is_route_programmed_reply = "quedo programada" in reply.lower()
+    if service_area == "route_scheduling" and (
+        next_action == "confirmar_programacion_ruta" or is_route_programmed_reply
+    ):
+        try:
+            mock_result = submit_route_mock_record(
+                chat_id=chat_id,
+                request_id=request_ref["id"],
+                client_id=client_id,
+                captured_fields=captured_fields,
+                scheduled_pickup_date=scheduled_pickup_date,
+            )
+            if mock_result.get("submitted") and mock_result.get("assigned"):
+                courier_name = str(mock_result.get("courier_name") or "").strip()
+                if courier_name:
+                    automation_note = f" Mensajero asignado: {courier_name}."
+            elif mock_result.get("submitted"):
+                automation_note = (
+                    " Recibimos la solicitud y quedo registrada. Estamos validando mensajero asignado."
+                )
+        except httpx.HTTPStatusError:
+            automation_note = " Tu solicitud quedo creada, pero estamos validando la asignacion de mensajero."
+
+    if automation_note:
+        reply = f"{reply}{automation_note}".strip()
+        last_bot_message_to_store = follow_up_message or reply
 
     try:
         supabase.upsert_telegram_session(
@@ -2121,6 +2843,140 @@ def flow_page() -> Any:
 @login_required
 def dashboard_overview() -> Any:
     return jsonify(build_dashboard_context())
+
+
+@app.post("/webhooks/new-client-registration")
+def new_client_registration_webhook() -> Any:
+    secret = request.headers.get("X-New-Client-Secret")
+    if not verify_optional_secret(settings.new_client_form_webhook_secret, secret):
+        return jsonify({"error": "Invalid new client webhook secret"}), 401
+
+    raw_payload = request.get_json(silent=True) or {}
+    payload = raw_payload.get("responses") if isinstance(raw_payload, dict) and isinstance(raw_payload.get("responses"), dict) else raw_payload
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid payload"}), 400
+
+    clinic_name = extract_form_value(
+        payload,
+        (
+            "Nombre de la veterinaria o medico veterinario",
+            "Veterinaria o medico veterinario",
+            "Nombre completo de la veterinaria",
+            "clinica veterinaria",
+        ),
+    )
+    if not clinic_name:
+        return jsonify({"error": "Missing clinic name"}), 400
+
+    clinic_key = normalize_lookup_key(clinic_name)
+    if not clinic_key:
+        return jsonify({"error": "Invalid clinic name"}), 400
+
+    address = extract_form_value(
+        payload,
+        ("Direccion y ubicacion en Google Maps", "Direccion", "Direccion, Barrio y Localidad"),
+    )
+    locality = extract_form_value(payload, ("Barrio y Localidad", "Barrio y localidad"))
+    phone = extract_form_value(payload, ("N Celular", "Celular o Telefono", "N Celular de comunicacion"))
+    email = extract_form_value(payload, ("Email", "Correo o WhatsApp", "Correo"))
+    tax_id = extract_form_value(payload, ("Rut", "Informacion en RUT", "NIT", "Nif"))
+    professional_name = extract_form_value(
+        payload,
+        ("Medico Veterinario", "Nombre completo del medico", "Medico veterinario"),
+    )
+    professional_card = extract_form_value(
+        payload,
+        ("N Tarjeta Profesional", "N TP", "N Tarjeta profesional"),
+    )
+    result_delivery_mode = extract_form_value(
+        payload,
+        (
+            "Medio de envio de Resultados",
+            "Medio de envio de examenes",
+            "Medio por el cual requiere que se envio los resultados",
+        ),
+    )
+
+    now_iso = datetime.now().isoformat()
+
+    knowledge_row = {
+        "clinic_key": clinic_key,
+        "clinic_name": clinic_name,
+        "is_registered": True,
+        "is_new_client": True,
+        "address": address or None,
+        "locality": locality or None,
+        "phone": phone or None,
+        "email": email or None,
+        "payment_policy": None,
+        "result_delivery_mode": result_delivery_mode or None,
+        "sources_json": ["google_form_webhook"],
+        "source_excel": "google_form_webhook",
+        "source_updated_at": now_iso,
+    }
+
+    professional_row = {
+        "clinic_key": clinic_key,
+        "professional_key": normalize_lookup_key(f"{professional_name}|{professional_card}"),
+        "professional_name": professional_name or None,
+        "professional_card": professional_card or None,
+        "source_sheet": "google_form_webhook",
+    }
+
+    try:
+        supabase.insert_rows(
+            "clients_a3_knowledge",
+            [knowledge_row],
+            upsert=True,
+            on_conflict="clinic_key",
+        )
+        if professional_row["professional_key"]:
+            supabase.insert_rows(
+                "clients_a3_professionals",
+                [professional_row],
+                upsert=True,
+                on_conflict="clinic_key,professional_key,source_sheet",
+            )
+
+        if address:
+            base_client_payload = {
+                "clinic_name": clinic_name,
+                "tax_id": tax_id or None,
+                "phone": phone or None,
+                "address": address,
+                "city": locality or None,
+                "zone": locality or None,
+                "billing_type": "cash",
+                "is_active": True,
+            }
+            if phone:
+                supabase.insert_rows(
+                    "clients",
+                    [base_client_payload],
+                    upsert=True,
+                    on_conflict="phone",
+                )
+            else:
+                supabase.insert_rows("clients", [base_client_payload])
+    except httpx.HTTPStatusError as exc:
+        return (
+            jsonify(
+                {
+                    "error": "Supabase tables are not ready for new client registration sync",
+                    "status_code": exc.response.status_code,
+                }
+            ),
+            503,
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "clinic_key": clinic_key,
+            "clinic_name": clinic_name,
+            "registered_in_clients": bool(address),
+        }
+    )
 
 
 @app.post("/webhooks/liveconnect")

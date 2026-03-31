@@ -23,12 +23,15 @@ py -m pip install -r requirements.txt
 - Ejecutar `architecture/sql/002_dashboard_operational_schema.sql` en SQL Editor.
 - Ejecutar `architecture/sql/003_telegram_sessions_schema.sql` en SQL Editor.
 - Ejecutar `architecture/sql/004_conversation_flow_tracking.sql` en SQL Editor.
+- Ejecutar `architecture/sql/005_telegram_message_history.sql` en SQL Editor.
+- Ejecutar `../3-conexiones/architecture/sql/006_clients_a3_knowledge_index.sql` en SQL Editor.
 
 4. Importar datos iniciales:
 
 ```bash
 py tools/import_clients_excel.py
 py tools/import_catalog_pdf.py
+py tools/import_route_assignments_excel.py --excel "C:\Users\gasto\Downloads\A3 VETERINARIA.xlsx"
 ```
 
 5. Levantar API local:
@@ -89,6 +92,43 @@ El bot opera unicamente en modo webhook para minimizar latencia y simplificar op
 - `POST /webhooks/anarvet/result`
   - Sincroniza estado de muestra/resultados hacia `lab_samples`.
   - Header opcional: `X-Anarvet-Secret`.
+- `POST /webhooks/new-client-registration`
+  - Recibe altas de cliente nuevo desde Google Forms (o integrador intermedio).
+  - Header opcional/recomendado: `X-New-Client-Secret`.
+  - Upsert en `clients_a3_knowledge` y `clients_a3_professionals`.
+  - Inserta/actualiza en `clients` cuando llega direccion.
+
+### Payload esperado (JSON)
+
+Puedes enviar los campos como claves directas o dentro de `responses`:
+
+```json
+{
+  "responses": {
+    "Nombre de la veterinaria o medico veterinario": "Clinica Vet Norte",
+    "Direccion y ubicacion en Google Maps": "Cra 12 # 34-56",
+    "Barrio y Localidad": "Kennedy",
+    "N Celular": "3001234567",
+    "Email": "vetnorte@example.com",
+    "Medico Veterinario": "Dra Paula Rios",
+    "N Tarjeta Profesional": "TP-9988",
+    "Rut": "900123456"
+  }
+}
+```
+
+Integracion sugerida para Google Forms:
+- Trigger `onFormSubmit` en Google Apps Script.
+- Enviar POST JSON al endpoint `/webhooks/new-client-registration`.
+- Incluir header `X-New-Client-Secret` con `NEW_CLIENT_FORM_WEBHOOK_SECRET`.
+
+## Automatizacion de programacion de ruta (sandbox)
+
+- Cuando el flujo de ruta llega a confirmacion final, el backend registra automaticamente un evento
+  `route_form_mock_submitted` en `request_events` con estructura equivalente al formulario operativo.
+- En el mismo punto, intenta asignar mensajero con `client_courier_assignment` y registra
+  `assignment_result` en `request_events`.
+- Este modo no escribe en el Google Form real; sirve para pruebas funcionales sobre la base actual.
 
 ## Dashboard privado
 - `GET /login`
