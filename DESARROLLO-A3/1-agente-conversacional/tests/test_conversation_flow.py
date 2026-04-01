@@ -242,6 +242,39 @@ class ConversationFlowTests(unittest.TestCase):
         main.handle_telegram_message(102, "quiero programar un retiro")
         self.assertEqual(self.fake_telegram.messages[-1][1], main.ROUTE_CLIENT_IDENTIFICATION_MESSAGE)
 
+    def test_route_registered_phrase_keeps_route_flow_and_identifies_clinic(self) -> None:
+        self.fake_supabase.sessions["116"] = make_session(
+            116,
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="solicitar_nif_o_nombre_fiscal",
+        )
+        self.fake_supabase.clients.append(
+            {
+                "id": "client-terra",
+                "clinic_name": "Terra Pets",
+                "phone": "+573001234567",
+                "tax_id": "900123456",
+                "address": "CL 2 87F 31",
+            }
+        )
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="alta_cliente",
+                service_area="new_client",
+                next_action="compartir_formulario_registro_cliente",
+                reply="Te ayudo con registro.",
+            )
+        )
+
+        main.handle_telegram_message(116, "si estoy registrado, Terra Pets es la veterinaria")
+
+        stored = self.fake_supabase.sessions["116"]
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertEqual(stored["service_area"], "route_scheduling")
+        self.assertNotIn(main.NEW_CLIENT_REGISTRATION_FORM_URL.lower(), sent)
+        self.assertIn("terra pets", sent)
+
     def test_analyze_sample_phrase_goes_to_identification_gate(self) -> None:
         self.fake_supabase.sessions["111"] = make_session(111)
         main.openai_service = FakeOpenAI(
@@ -269,6 +302,40 @@ class ConversationFlowTests(unittest.TestCase):
         self.assertEqual(self.fake_telegram.messages[-1][1], main.ROUTE_CLIENT_IDENTIFICATION_MESSAGE)
         stored = self.fake_supabase.sessions["113"]
         self.assertEqual(stored["service_area"], "route_scheduling")
+
+    def test_prueba_a_analizar_phrase_goes_to_identification_gate(self) -> None:
+        self.fake_supabase.sessions["114"] = make_session(114)
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="no_clasificado",
+                service_area="unknown",
+                reply="Entiendo.",
+            )
+        )
+        main.handle_telegram_message(114, "necesito mandar una prueba a analizar")
+        self.assertEqual(self.fake_telegram.messages[-1][1], main.ROUTE_CLIENT_IDENTIFICATION_MESSAGE)
+        stored = self.fake_supabase.sessions["114"]
+        self.assertEqual(stored["service_area"], "route_scheduling")
+
+    def test_semantic_hint_routes_unknown_phrase_to_route(self) -> None:
+        class SemanticOpenAI(FakeOpenAI):
+            def classify_service_area(self, *, user_message: str):
+                return "route_scheduling"
+
+        self.fake_supabase.sessions["115"] = make_session(115)
+        main.openai_service = SemanticOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="no_clasificado",
+                service_area="unknown",
+                reply="Entiendo.",
+            )
+        )
+
+        main.handle_telegram_message(115, "quisiera coordinar una analitica veterinaria domiciliaria")
+
+        stored = self.fake_supabase.sessions["115"]
+        self.assertEqual(stored["service_area"], "route_scheduling")
+        self.assertEqual(stored["next_action"], "solicitar_nif_o_nombre_fiscal")
 
     def test_route_progresses_when_tax_id_matches(self) -> None:
         self.fake_supabase.sessions["103"] = make_session(103, next_action="solicitar_nif_o_nombre_fiscal")
@@ -901,6 +968,14 @@ class ConversationFlowTests(unittest.TestCase):
         hint = main.extract_clinic_name_hint("si estoy registrado, mi nombre de veterinaria es terra pets")
         self.assertEqual(hint, "terra pets")
 
+    def test_extract_clinic_hint_from_registered_phrase(self) -> None:
+        hint = main.extract_clinic_name_hint("si estoy registrado, Terra Pets es la veterinaria")
+        self.assertEqual(hint, "Terra Pets")
+
+    def test_extract_clinic_hint_from_name_phrase(self) -> None:
+        hint = main.extract_clinic_name_hint("Terra Pets es el nombre")
+        self.assertEqual(hint, "Terra Pets")
+
     def test_new_client_registration_webhook_syncs_to_supabase_tables(self) -> None:
         main.settings.new_client_form_webhook_secret = "secret-a3"
         client = main.app.test_client()
@@ -965,11 +1040,7 @@ class ConversationFlowTests(unittest.TestCase):
 
         main.handle_telegram_message(112, "Hola buenas tardes")
 
-        self.assertGreaterEqual(len(self.fake_telegram.messages), 2)
-        first_reply = self.fake_telegram.messages[-2][1]
-        second_reply = self.fake_telegram.messages[-1][1]
-        self.assertEqual(first_reply, main.INITIAL_GREETING_MESSAGE)
-        self.assertEqual(second_reply, main.INTENT_CLARIFICATION_MESSAGE)
+        self.assertEqual(self.fake_telegram.messages[-1][1], main.INITIAL_GREETING_MESSAGE)
 
     def test_wellbeing_greeting_returns_human_welcome_and_menu(self) -> None:
         self.fake_supabase.sessions["1121"] = make_session(1121)
@@ -977,11 +1048,7 @@ class ConversationFlowTests(unittest.TestCase):
 
         main.handle_telegram_message(1121, "Hola como estan?")
 
-        self.assertGreaterEqual(len(self.fake_telegram.messages), 2)
-        first_reply = self.fake_telegram.messages[-2][1]
-        second_reply = self.fake_telegram.messages[-1][1]
-        self.assertEqual(first_reply, main.INITIAL_GREETING_MESSAGE)
-        self.assertEqual(second_reply, main.INTENT_CLARIFICATION_MESSAGE)
+        self.assertEqual(self.fake_telegram.messages[-1][1], main.INITIAL_GREETING_MESSAGE)
 
     def test_bulk_50_variants_per_option(self) -> None:
         self._set_unknown_openai()
@@ -994,10 +1061,12 @@ class ConversationFlowTests(unittest.TestCase):
                 "quiero programar un retiro",
                 "necesito enviar muestras",
                 "quiero mandar a analizar una muestra",
+                "necesito mandar una prueba a analizar",
+                "quiero enviar un examen al laboratorio",
+                "quiero procesar un panel diagnostico",
                 "me ayudas con la ruta",
                 "quiero recoger muestra",
                 "programacion de ruta",
-                "quiero analizar muestras",
             ]
         )
         results_inputs = self._build_variants(

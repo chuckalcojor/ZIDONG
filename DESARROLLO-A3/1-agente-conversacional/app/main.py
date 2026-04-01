@@ -105,6 +105,30 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "quiero analizar muestras",
         "enviar muestra",
         "enviar muestras",
+        "enviar prueba",
+        "enviar pruebas",
+        "enviar examen",
+        "enviar examenes",
+        "mandar una prueba a analizar",
+        "mandar prueba a analizar",
+        "mandar examen a analizar",
+        "procesar muestra",
+        "procesar prueba",
+        "procesar examen",
+        "procesar analitica",
+        "tomar muestra",
+        "toma de muestra",
+        "recoleccion de muestra",
+        "recolectar muestra",
+        "recolectar pruebas",
+        "recolectar examenes",
+        "muestra biologica",
+        "muestra clinica",
+        "remitir muestra",
+        "remision de muestra",
+        "envio al laboratorio",
+        "domicilio para recoger",
+        "domicilio para retiro",
         "recoger muestra",
         "retiro de muestra",
         "retirar muestra",
@@ -358,35 +382,162 @@ def detect_explicit_service_area(text: str) -> str | None:
     if not tokens:
         return None
 
-    has_results_signal = bool(tokens & {"resultado", "estad", "informe"})
-    has_accounting_signal = bool(tokens & {"contabilidad", "factura", "facturacion", "cartera", "pago"})
-    has_new_client_signal = bool(tokens & {"registro", "registrar", "cliente", "nuevo", "primer", "vez"})
+    results_tokens = {
+        "resultado",
+        "estad",
+        "informe",
+        "report",
+        "diagnost",
+        "entrega",
+        "list",
+    }
+    accounting_tokens = {
+        "contabilidad",
+        "factura",
+        "facturacion",
+        "cartera",
+        "pago",
+        "cobro",
+        "deuda",
+        "abono",
+        "saldo",
+        "cuenta",
+    }
+    new_client_tokens = {
+        "registro",
+        "registrar",
+        "cliente",
+        "nuevo",
+        "primer",
+        "vez",
+        "alta",
+        "vincul",
+        "afiliar",
+    }
+    route_direct_tokens = {
+        "ruta",
+        "retiro",
+        "retirar",
+        "recoger",
+        "recogida",
+        "recoleccion",
+        "domicilio",
+        "motorizado",
+        "mensajero",
+        "pickup",
+        "logistica",
+    }
+    route_action_tokens = {
+        "mandar",
+        "enviar",
+        "analizar",
+        "programar",
+        "agendar",
+        "retiro",
+        "retirar",
+        "recoger",
+        "recolectar",
+        "remitir",
+        "coordinar",
+        "procesar",
+        "tramitar",
+        "despachar",
+        "tomar",
+    }
+    sample_tokens = {
+        "muestra",
+        "muestr",
+        "analisi",
+        "laboratorio",
+        "prueba",
+        "prueb",
+        "examen",
+        "exam",
+        "panel",
+        "perfil",
+        "serologia",
+        "hematologia",
+        "coprologia",
+        "uroanalisi",
+        "citologia",
+        "biopsia",
+        "hispatologia",
+        "molecular",
+        "pcr",
+    }
 
-    has_route_direct_signal = bool(tokens & {"ruta", "retiro", "retirar", "recoger", "recogida"})
-    has_route_action_signal = bool(tokens & {"mandar", "enviar", "analizar", "programar", "agendar", "retiro", "retirar", "recoger"})
-    has_sample_signal = bool(tokens & {"muestra", "analisi", "laboratorio"})
+    has_results_signal = bool(tokens & results_tokens)
+    has_accounting_signal = bool(tokens & accounting_tokens)
+    has_new_client_signal = bool(tokens & new_client_tokens)
+    has_route_direct_signal = bool(tokens & route_direct_tokens)
+    has_route_action_signal = bool(tokens & route_action_tokens)
+    has_sample_signal = bool(tokens & sample_tokens)
 
-    if has_accounting_signal:
-        return "accounting"
-
-    if has_new_client_signal and not has_route_action_signal:
-        return "new_client"
-
-    if has_results_signal and not has_route_action_signal:
-        return "results"
+    scores = {
+        "route_scheduling": 0,
+        "results": 0,
+        "accounting": 0,
+        "new_client": 0,
+    }
 
     if has_route_direct_signal:
-        return "route_scheduling"
-
+        scores["route_scheduling"] += 4
+    if has_route_action_signal:
+        scores["route_scheduling"] += 2
+    if has_sample_signal:
+        scores["route_scheduling"] += 2
     if has_sample_signal and has_route_action_signal:
-        return "route_scheduling"
+        scores["route_scheduling"] += 3
 
     if has_results_signal:
-        return "results"
-
+        scores["results"] += 4
+    if has_accounting_signal:
+        scores["accounting"] += 4
     if has_new_client_signal:
-        return "new_client"
+        scores["new_client"] += 3
 
+    if has_new_client_signal and has_route_action_signal:
+        scores["route_scheduling"] += 2
+        scores["new_client"] -= 1
+    if has_results_signal and has_route_action_signal and has_sample_signal:
+        scores["route_scheduling"] += 2
+
+    ranking = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    best_area, best_score = ranking[0]
+    if best_score <= 0:
+        return None
+
+    sorted_scores = sorted(scores.values(), reverse=True)
+    score_gap = sorted_scores[0] - sorted_scores[1]
+    if best_score >= 4 or score_gap >= 2:
+        return best_area
+
+    return None
+
+
+def detect_semantic_service_area_hint(text: str) -> str | None:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return None
+
+    if is_greeting_only(text) or is_small_talk_only(text):
+        return None
+
+    classify_fn = getattr(openai_service, "classify_service_area", None)
+    if not callable(classify_fn):
+        return None
+
+    try:
+        detected = classify_fn(user_message=text)
+    except (httpx.HTTPError, ValueError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(detected, str):
+        return None
+
+    valid_areas = {"route_scheduling", "results", "accounting", "new_client"}
+    if detected in valid_areas:
+        return str(detected)
     return None
 
 
@@ -745,6 +896,21 @@ def extract_clinic_name_hint(text: str) -> str | None:
         return None
 
     hint = raw
+    anchored_match_found = False
+
+    anchored_patterns = (
+        r"^\s*(?:si\s+)?(?:estoy\s+)?(?:registrad[oa]\s*,?\s*)?(.+?)\s+es\s+la\s+veterinaria\s*$",
+        r"^\s*(.+?)\s+es\s+el\s+nombre(?:\s+fiscal)?\s*$",
+        r"^\s*(.+?)\s+es\s+mi\s+veterinaria\s*$",
+    )
+    for pattern in anchored_patterns:
+        match = re.match(pattern, raw, flags=re.IGNORECASE)
+        if match:
+            candidate = (match.group(1) or "").strip(" :,-")
+            if len(candidate) >= 4:
+                hint = candidate
+                anchored_match_found = True
+                break
     prefixes = (
         "mi nombre de veterinaria es",
         "nombre de veterinaria",
@@ -755,14 +921,23 @@ def extract_clinic_name_hint(text: str) -> str | None:
         "veterinaria",
         "clinica",
     )
-    lowered = raw.lower()
-    for prefix in prefixes:
-        idx = lowered.find(prefix)
-        if idx >= 0:
-            hint = raw[idx + len(prefix) :].strip(" :,-")
-            break
+    if not anchored_match_found:
+        lowered = raw.lower()
+        for prefix in prefixes:
+            idx = lowered.find(prefix)
+            if idx >= 0:
+                hint = raw[idx + len(prefix) :].strip(" :,-")
+                break
 
     hint = re.sub(r"^es\s+", "", hint, flags=re.IGNORECASE).strip()
+    hint = re.sub(
+        r"^(?:si\s+)?(?:estoy\s+)?(?:registrad[oa])\s*,?\s*",
+        "",
+        hint,
+        flags=re.IGNORECASE,
+    ).strip()
+    hint = re.sub(r"\s+es\s+la\s+veterinaria$", "", hint, flags=re.IGNORECASE).strip()
+    hint = re.sub(r"\s+es\s+el\s+nombre(?:\s+fiscal)?$", "", hint, flags=re.IGNORECASE).strip()
 
     for separator in (" y ", ",", "."):
         if separator in hint.lower():
@@ -1936,7 +2111,20 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     if intent not in VALID_INTENTS:
         intent = "no_clasificado"
     service_area = turn.get("service_area") or map_intent_to_service_area(intent)
+    pending_route_identifier = bool(
+        session
+        and (session or {}).get("next_action") == "solicitar_nif_o_nombre_fiscal"
+        and session_service_area == "route_scheduling"
+    )
     explicit_area = detect_explicit_service_area(text)
+    if pending_route_identifier and explicit_area == "new_client" and not user_declares_not_registered(text):
+        explicit_area = "route_scheduling"
+    if not explicit_area and len(normalize_lookup_key(text)) >= 8:
+        semantic_area = detect_semantic_service_area_hint(text)
+        if pending_route_identifier and semantic_area == "new_client" and not user_declares_not_registered(text):
+            semantic_area = None
+        if semantic_area:
+            explicit_area = semantic_area
     numeric_menu_option = detect_numeric_menu_option(text)
     if numeric_menu_option in {"route_scheduling", "results", "accounting", "new_client"}:
         explicit_area = numeric_menu_option
@@ -1949,6 +2137,11 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             "accounting": "contabilidad",
             "new_client": "alta_cliente",
         }.get(explicit_area, intent)
+
+    if pending_route_identifier and not user_declares_not_registered(text):
+        if not explicit_area or explicit_area == "route_scheduling":
+            service_area = "route_scheduling"
+            intent = "programacion_rutas"
 
     phase_current = turn.get("phase_current", "fase_1_clasificacion")
     phase_next = turn.get("phase_next", "fase_2_recogida_datos")
@@ -2106,12 +2299,12 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     if is_first_turn:
         if is_wellbeing_greeting(text):
             reply = INITIAL_GREETING_MESSAGE
-            follow_up_message = INTENT_CLARIFICATION_MESSAGE
+            follow_up_message = ""
             next_action = "solicitar_clasificacion"
             phase_current = "fase_1_clasificacion"
         elif should_split_first_greeting(text):
             reply = INITIAL_GREETING_MESSAGE
-            follow_up_message = INTENT_CLARIFICATION_MESSAGE
+            follow_up_message = ""
             next_action = "solicitar_clasificacion"
             phase_current = "fase_1_clasificacion"
         else:
@@ -2146,10 +2339,10 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         message_mode = "flow_progress"
         if is_wellbeing_greeting(text):
             reply = INITIAL_GREETING_MESSAGE
-            follow_up_message = INTENT_CLARIFICATION_MESSAGE
+            follow_up_message = ""
         elif is_greeting_only(text):
             reply = INITIAL_GREETING_MESSAGE
-            follow_up_message = INTENT_CLARIFICATION_MESSAGE
+            follow_up_message = ""
         else:
             reply = INTENT_CLARIFICATION_MESSAGE
 

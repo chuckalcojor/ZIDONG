@@ -213,3 +213,95 @@ class OpenAIService:
                     return json.loads(content_text)
 
         raise ValueError("Empty OpenAI response")
+
+    def classify_service_area(self, *, user_message: str) -> str:
+        payload = {
+            "model": self.model,
+            "input": [
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "Clasifica el mensaje de un cliente veterinario en una sola area de servicio. "
+                                "Responde solo JSON con la clave service_area."
+                            ),
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": json.dumps(
+                                {
+                                    "instruction": "Responde solo con JSON valido.",
+                                    "service_areas": [
+                                        "route_scheduling",
+                                        "results",
+                                        "accounting",
+                                        "new_client",
+                                        "unknown",
+                                    ],
+                                    "message": user_message,
+                                },
+                                ensure_ascii=True,
+                            ),
+                        }
+                    ],
+                },
+            ],
+            "max_output_tokens": 80,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "a3_service_area_classifier",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "service_area": {
+                                "type": "string",
+                                "enum": [
+                                    "route_scheduling",
+                                    "results",
+                                    "accounting",
+                                    "new_client",
+                                    "unknown",
+                                ],
+                            }
+                        },
+                        "required": ["service_area"],
+                    },
+                }
+            },
+        }
+
+        with httpx.Client(timeout=20) as client:
+            response = client.post(
+                "https://api.openai.com/v1/responses",
+                headers=self.headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            body = response.json()
+
+        text = (body.get("output_text") or "").strip()
+        if text:
+            parsed = json.loads(text)
+            return str(parsed.get("service_area") or "unknown")
+
+        for output_item in body.get("output", []):
+            for content_item in output_item.get("content", []):
+                json_payload = content_item.get("json")
+                if isinstance(json_payload, dict):
+                    return str(json_payload.get("service_area") or "unknown")
+                content_text = (content_item.get("text") or "").strip()
+                if content_text:
+                    parsed = json.loads(content_text)
+                    return str(parsed.get("service_area") or "unknown")
+
+        return "unknown"

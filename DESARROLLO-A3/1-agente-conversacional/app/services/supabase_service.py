@@ -75,6 +75,22 @@ class SupabaseService:
             )
             response.raise_for_status()
 
+    def delete_rows(self, table: str, filters: dict[str, str]) -> int:
+        headers = {**self.headers, "Prefer": "count=exact"}
+        with httpx.Client(timeout=30) as client:
+            response = client.delete(
+                self._rest_url(table),
+                headers=headers,
+                params=filters,
+            )
+            response.raise_for_status()
+            content_range = response.headers.get("Content-Range", "0-0/0")
+            total = content_range.split("/")[-1]
+            try:
+                return int(total)
+            except ValueError:
+                return 0
+
     def get_client_by_phone(self, phone: str) -> dict[str, Any] | None:
         params = {"phone": f"eq.{phone}", "select": "id,clinic_name,phone"}
         with httpx.Client(timeout=20) as client:
