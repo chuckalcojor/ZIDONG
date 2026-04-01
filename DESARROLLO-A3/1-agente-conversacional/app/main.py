@@ -485,8 +485,32 @@ def is_greeting_only(text: str) -> bool:
         "noches",
         "hey",
         "holi",
+        "como",
+        "estas",
+        "estan",
+        "tal",
+        "que",
     }
     return all(word in greeting_words for word in words)
+
+
+def is_wellbeing_greeting(text: str) -> bool:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return False
+
+    wellbeing_patterns = (
+        "hola como estas",
+        "hola como estan",
+        "como estas",
+        "como estan",
+        "que tal",
+        "como va",
+        "como vas",
+        "como se encuentran",
+        "todo bien",
+    )
+    return any(pattern in normalized for pattern in wellbeing_patterns)
 
 
 def is_affirmative_reply(text: str) -> bool:
@@ -2080,8 +2104,13 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                     )
 
     if is_first_turn:
-        if should_split_first_greeting(text):
-            reply = INITIAL_GREETING_MESSAGE_NO_QUESTION
+        if is_wellbeing_greeting(text):
+            reply = INITIAL_GREETING_MESSAGE
+            follow_up_message = INTENT_CLARIFICATION_MESSAGE
+            next_action = "solicitar_clasificacion"
+            phase_current = "fase_1_clasificacion"
+        elif should_split_first_greeting(text):
+            reply = INITIAL_GREETING_MESSAGE
             follow_up_message = INTENT_CLARIFICATION_MESSAGE
             next_action = "solicitar_clasificacion"
             phase_current = "fase_1_clasificacion"
@@ -2115,7 +2144,14 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         missing_fields = []
         resume_prompt = ""
         message_mode = "flow_progress"
-        reply = INTENT_CLARIFICATION_MESSAGE
+        if is_wellbeing_greeting(text):
+            reply = INITIAL_GREETING_MESSAGE
+            follow_up_message = INTENT_CLARIFICATION_MESSAGE
+        elif is_greeting_only(text):
+            reply = INITIAL_GREETING_MESSAGE
+            follow_up_message = INTENT_CLARIFICATION_MESSAGE
+        else:
+            reply = INTENT_CLARIFICATION_MESSAGE
 
     if (
         not is_first_turn

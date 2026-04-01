@@ -188,6 +188,48 @@ class ConversationFlowTests(unittest.TestCase):
         main.openai_service = self.original_openai
         main.settings.new_client_form_webhook_secret = self.original_new_client_secret
 
+    def _set_unknown_openai(self) -> None:
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="no_clasificado",
+                service_area="unknown",
+                phase_current="fase_1_clasificacion",
+                phase_next="fase_2_recogida_datos",
+                missing_fields=[],
+                reply="Entiendo, te ayudo con gusto.",
+            )
+        )
+
+    def _build_variants(self, bases: list[str]) -> list[str]:
+        prefixes = [
+            "hola",
+            "hola buen dia",
+            "buenas",
+            "buenas tardes",
+            "que tal",
+            "porfa",
+            "necesito ayuda",
+            "me ayudas",
+            "hola como estan",
+            "",
+        ]
+        suffixes = [
+            "por favor",
+            "gracias",
+            "cuando puedas",
+            "",
+            "es urgente",
+        ]
+
+        variants: list[str] = []
+        for i in range(50):
+            prefix = prefixes[i % len(prefixes)].strip()
+            base = bases[i % len(bases)].strip()
+            suffix = suffixes[(i * 2) % len(suffixes)].strip()
+            parts = [part for part in (prefix, base, suffix) if part]
+            variants.append(" ".join(parts))
+        return variants
+
     def test_first_turn_sends_welcome(self) -> None:
         main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
         main.handle_telegram_message(101, "hola")
@@ -923,7 +965,149 @@ class ConversationFlowTests(unittest.TestCase):
 
         main.handle_telegram_message(112, "Hola buenas tardes")
 
-        self.assertEqual(self.fake_telegram.messages[-1][1], main.INTENT_CLARIFICATION_MESSAGE)
+        self.assertGreaterEqual(len(self.fake_telegram.messages), 2)
+        first_reply = self.fake_telegram.messages[-2][1]
+        second_reply = self.fake_telegram.messages[-1][1]
+        self.assertEqual(first_reply, main.INITIAL_GREETING_MESSAGE)
+        self.assertEqual(second_reply, main.INTENT_CLARIFICATION_MESSAGE)
+
+    def test_wellbeing_greeting_returns_human_welcome_and_menu(self) -> None:
+        self.fake_supabase.sessions["1121"] = make_session(1121)
+        self._set_unknown_openai()
+
+        main.handle_telegram_message(1121, "Hola como estan?")
+
+        self.assertGreaterEqual(len(self.fake_telegram.messages), 2)
+        first_reply = self.fake_telegram.messages[-2][1]
+        second_reply = self.fake_telegram.messages[-1][1]
+        self.assertEqual(first_reply, main.INITIAL_GREETING_MESSAGE)
+        self.assertEqual(second_reply, main.INTENT_CLARIFICATION_MESSAGE)
+
+    def test_bulk_50_variants_per_option(self) -> None:
+        self._set_unknown_openai()
+
+        route_inputs = self._build_variants(
+            [
+                "quiero programar recogida",
+                "necesito programar recoleccion",
+                "quiero agendar retiro de muestra",
+                "quiero programar un retiro",
+                "necesito enviar muestras",
+                "quiero mandar a analizar una muestra",
+                "me ayudas con la ruta",
+                "quiero recoger muestra",
+                "programacion de ruta",
+                "quiero analizar muestras",
+            ]
+        )
+        results_inputs = self._build_variants(
+            [
+                "consulta de resultados",
+                "quiero consultar resultados",
+                "necesito estado de resultado",
+                "quiero ver el estado de la muestra",
+                "me ayudas con resultados",
+                "resultado de mi muestra",
+                "estado de resultado por favor",
+                "revisar resultados",
+                "dame resultados",
+                "quiero resultados",
+            ]
+        )
+        accounting_inputs = self._build_variants(
+            [
+                "necesito contabilidad",
+                "me ayudas con facturacion",
+                "tengo una duda de cartera",
+                "quiero revisar pagos",
+                "consulta de cobro",
+                "tema financiera",
+                "pregunta de factura",
+                "aclarar deuda",
+                "duda de pago",
+                "apoyo de contabilidad",
+            ]
+        )
+        new_client_inputs = self._build_variants(
+            [
+                "soy cliente nuevo",
+                "quiero registrarme",
+                "no estoy registrado",
+                "es primera vez",
+                "quiero darme de alta",
+                "registro de cliente",
+                "necesito registrar cliente",
+                "no estoy en la base",
+                "quiero registrarme",
+                "primera vez con ustedes",
+            ]
+        )
+        pqrs_inputs = self._build_variants(
+            [
+                "pqrs",
+                "quiero poner una queja",
+                "quiero hacer un reclamo",
+                "tengo una sugerencia",
+                "quiero radicar una peticion",
+                "consulta pqrs",
+                "felicitacion para el equipo",
+                "deseo ingresar una peticion",
+                "me apoyas con pqrs",
+                "necesito canal pqrs",
+            ]
+        )
+        other_inputs = self._build_variants(
+            [
+                "otras consultas",
+                "quiero hacer otra consulta",
+                "tengo una consulta general",
+                "otra duda",
+                "otra inquietud",
+                "pregunta adicional",
+                "informacion general",
+                "orientacion general",
+                "soporte general",
+                "consulta distinta",
+            ]
+        )
+
+        cases = [
+            ("route_scheduling", "solicitar_nif_o_nombre_fiscal", route_inputs),
+            ("results", None, results_inputs),
+            ("accounting", None, accounting_inputs),
+            ("new_client", "compartir_formulario_registro_cliente", new_client_inputs),
+            ("unknown", "share_pqrs_link", pqrs_inputs),
+            ("unknown", "atender_otra_consulta", other_inputs),
+        ]
+
+        chat_id = 2000
+        for expected_area, expected_action, utterances in cases:
+            self.assertEqual(len(utterances), 50)
+            for utterance in utterances:
+                chat_id += 1
+                self.fake_supabase.sessions[str(chat_id)] = make_session(chat_id)
+                start_idx = len(self.fake_telegram.messages)
+                main.handle_telegram_message(chat_id, utterance)
+                stored = self.fake_supabase.sessions[str(chat_id)]
+
+                with self.subTest(area=expected_area, text=utterance):
+                    self.assertEqual(stored["service_area"], expected_area)
+                    if expected_action:
+                        self.assertEqual(stored["next_action"], expected_action)
+
+                    new_messages = self.fake_telegram.messages[start_idx:]
+                    self.assertTrue(new_messages)
+
+                    if expected_action == "share_pqrs_link":
+                        self.assertGreaterEqual(len(new_messages), 2)
+                        self.assertIn(main.PQRS_LINK_URL, new_messages[0][1])
+                        self.assertEqual(new_messages[1][1], main.INTENT_CLARIFICATION_MESSAGE)
+                    elif expected_action == "compartir_formulario_registro_cliente":
+                        self.assertIn(main.NEW_CLIENT_REGISTRATION_FORM_URL, new_messages[-1][1])
+                    elif expected_action == "atender_otra_consulta":
+                        self.assertEqual(new_messages[-1][1], main.OTHER_QUERIES_MESSAGE)
+                    elif expected_area == "route_scheduling":
+                        self.assertIn("nif", new_messages[-1][1].lower())
 
     def test_detect_explicit_service_area_handles_grammar_variation(self) -> None:
         detected = main.detect_explicit_service_area("necesito mandar una muestras a analizar")
