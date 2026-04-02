@@ -851,11 +851,11 @@ def is_help_inquiry(text: str) -> bool:
 
 
 def is_price_or_services_inquiry(text: str) -> bool:
-    normalized = normalize_text_value(text)
+    normalized = normalize_lookup_key(text)
     if not normalized:
         return False
 
-    tokens = (
+    direct_tokens = (
         "cuanto",
         "precio",
         "precios",
@@ -863,11 +863,47 @@ def is_price_or_services_inquiry(text: str) -> bool:
         "costo",
         "tarifa",
         "tarifas",
+        "valor",
+        "valores",
+        "cuanto sale",
+        "cuanto salen",
+        "sale",
+        "salen",
         "que puedo hacer",
         "que servicios",
         "servicios tienen",
+        "tipo de analisis",
+        "que tipo de analisis",
+        "que examenes",
+        "que examen",
     )
-    return any(token in normalized for token in tokens)
+    if any(token in normalized for token in direct_tokens):
+        if "resultado" in normalized and not any(
+            token in normalized
+            for token in (
+                "analisis",
+                "examen",
+                "servicio",
+                "precio",
+                "valor",
+                "tarifa",
+            )
+        ):
+            return False
+        return True
+
+    if "consulta sobre" in normalized and any(
+        token in normalized for token in ("analisis", "examen", "servicio")
+    ):
+        return True
+
+    if (
+        any(token in normalized for token in ("hacen", "manejan", "ofrecen"))
+        and any(token in normalized for token in ("analisis", "examen"))
+    ):
+        return True
+
+    return False
 
 
 def should_split_first_greeting(text: str) -> bool:
@@ -2407,6 +2443,26 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
 
         if resume_prompt:
             reply = f"{reply} {resume_prompt}".strip()
+
+    if (
+        not is_first_turn
+        and service_area == "results"
+        and (is_price_or_services_inquiry(text) or is_help_inquiry(text))
+        and not extract_results_reference(text)
+    ):
+        intent = "no_clasificado"
+        service_area = "unknown"
+        phase_current = "fase_1_clasificacion"
+        phase_next = "fase_2_recogida_datos"
+        status = "in_progress"
+        next_action = "atender_otra_consulta"
+        missing_fields = []
+        message_mode = "intent_switch"
+        resume_prompt = ""
+        reply = (
+            "Claro, puedo orientarte con servicios, precios aproximados y procesos del laboratorio. "
+            "Cuéntame qué examen o necesidad tienes y te ayudo de inmediato."
+        )
 
     if service_area == "results":
         reference_data = extract_results_reference(text)

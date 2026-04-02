@@ -964,6 +964,42 @@ class ConversationFlowTests(unittest.TestCase):
         stored = self.fake_supabase.sessions["126"]
         self.assertEqual(stored["next_action"], "atender_otra_consulta")
 
+    def test_results_context_price_question_switches_context(self) -> None:
+        self.fake_supabase.sessions["131"] = make_session(
+            131,
+            intent_current="resultados",
+            service_area="results",
+            next_action="continuar_conversacion",
+            status="in_progress",
+        )
+        main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
+
+        main.handle_telegram_message(131, "quiero saber lo que salen hacer un analisis de orina")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("precios", sent)
+        stored = self.fake_supabase.sessions["131"]
+        self.assertEqual(stored["service_area"], "unknown")
+        self.assertEqual(stored["next_action"], "atender_otra_consulta")
+
+    def test_results_context_service_catalog_question_switches_context(self) -> None:
+        self.fake_supabase.sessions["132"] = make_session(
+            132,
+            intent_current="resultados",
+            service_area="results",
+            next_action="continuar_conversacion",
+            status="in_progress",
+        )
+        main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
+
+        main.handle_telegram_message(132, "que tipo de analisis de orina hacen?")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("servicios", sent)
+        stored = self.fake_supabase.sessions["132"]
+        self.assertEqual(stored["service_area"], "unknown")
+        self.assertEqual(stored["next_action"], "atender_otra_consulta")
+
     def test_extract_clinic_hint_from_nombre_de_veterinaria_phrase(self) -> None:
         hint = main.extract_clinic_name_hint("si estoy registrado, mi nombre de veterinaria es terra pets")
         self.assertEqual(hint, "terra pets")
