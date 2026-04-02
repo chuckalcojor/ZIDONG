@@ -1,18 +1,115 @@
 from __future__ import annotations
 
 import json
+import re
+import time
 from typing import Any
 
 import httpx
 
 
 class OpenAIService:
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        *,
+        fallback_model: str | None = None,
+        enable_fallback: bool = True,
+        max_retries: int = 1,
+    ) -> None:
         self.model = model
+        self.fallback_model = (fallback_model or "").strip() or None
+        self.enable_fallback = enable_fallback
+        self.max_retries = max(0, max_retries)
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+
+    def _safe_json_loads(self, raw_text: str) -> dict[str, Any]:
+        text = (raw_text or "").strip()
+        if not text:
+            raise ValueError("Empty OpenAI response text")
+
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            raise ValueError("Could not parse JSON object from OpenAI text")
+
+        parsed = json.loads(match.group(0))
+        if not isinstance(parsed, dict):
+            raise ValueError("OpenAI payload is not a JSON object")
+        return parsed
+
+    def _post_responses(self, payload: dict[str, Any], *, timeout: int) -> dict[str, Any]:
+        last_exc: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                with httpx.Client(timeout=timeout) as client:
+                    response = client.post(
+                        "https://api.openai.com/v1/responses",
+                        headers=self.headers,
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                    return response.json()
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                status_code = exc.response.status_code
+                is_retryable = status_code == 429 or status_code >= 500
+                if not is_retryable or attempt >= self.max_retries:
+                    raise
+                time.sleep(0.6 * (attempt + 1))
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                if attempt >= self.max_retries:
+                    raise
+                time.sleep(0.4 * (attempt + 1))
+
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("OpenAI request failed without explicit exception")
+
+    def _extract_output_json(self, body: dict[str, Any]) -> dict[str, Any]:
+        output_parsed = body.get("output_parsed")
+        if isinstance(output_parsed, dict):
+            return output_parsed
+
+        text = (body.get("output_text") or "").strip()
+        if text:
+            return self._safe_json_loads(text)
+
+        for output_item in body.get("output", []):
+            if not isinstance(output_item, dict):
+                continue
+            for content_item in output_item.get("content", []):
+                if not isinstance(content_item, dict):
+                    continue
+                json_payload = content_item.get("json")
+                if isinstance(json_payload, dict):
+                    return json_payload
+                content_text = (content_item.get("text") or "").strip()
+                if content_text:
+                    return self._safe_json_loads(content_text)
+
+        raise ValueError("Empty OpenAI response")
+
+    def _candidate_models(self) -> list[str]:
+        models = [self.model]
+        if (
+            self.enable_fallback
+            and self.fallback_model
+            and self.fallback_model != self.model
+        ):
+            models.append(self.fallback_model)
+        return models
 
     def generate_turn(
         self,
@@ -21,8 +118,7 @@ class OpenAIService:
         user_message: str,
         state: dict[str, Any],
     ) -> dict[str, Any]:
-        payload = {
-            "model": self.model,
+        payload_template = {
             "input": [
                 {
                     "role": "system",
@@ -189,34 +285,25 @@ class OpenAIService:
                 }
             },
         }
+        last_exc: Exception | None = None
+        for model_name in self._candidate_models():
+            payload = {**payload_template, "model": model_name}
+            try:
+                body = self._post_responses(payload, timeout=45)
+                parsed = self._extract_output_json(body)
+                if isinstance(parsed, dict):
+                    return parsed
+                raise ValueError("Turn payload is not a dict")
+            except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+                last_exc = exc
+                continue
 
-        with httpx.Client(timeout=45) as client:
-            response = client.post(
-                "https://api.openai.com/v1/responses",
-                headers=self.headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            body = response.json()
-
-        text = (body.get("output_text") or "").strip()
-        if text:
-            return json.loads(text)
-
-        for output_item in body.get("output", []):
-            for content_item in output_item.get("content", []):
-                json_payload = content_item.get("json")
-                if isinstance(json_payload, dict):
-                    return json_payload
-                content_text = (content_item.get("text") or "").strip()
-                if content_text:
-                    return json.loads(content_text)
-
+        if last_exc:
+            raise last_exc
         raise ValueError("Empty OpenAI response")
 
     def classify_service_area(self, *, user_message: str) -> str:
-        payload = {
-            "model": self.model,
+        payload_template = {
             "input": [
                 {
                     "role": "system",
@@ -280,28 +367,13 @@ class OpenAIService:
             },
         }
 
-        with httpx.Client(timeout=20) as client:
-            response = client.post(
-                "https://api.openai.com/v1/responses",
-                headers=self.headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            body = response.json()
-
-        text = (body.get("output_text") or "").strip()
-        if text:
-            parsed = json.loads(text)
-            return str(parsed.get("service_area") or "unknown")
-
-        for output_item in body.get("output", []):
-            for content_item in output_item.get("content", []):
-                json_payload = content_item.get("json")
-                if isinstance(json_payload, dict):
-                    return str(json_payload.get("service_area") or "unknown")
-                content_text = (content_item.get("text") or "").strip()
-                if content_text:
-                    parsed = json.loads(content_text)
-                    return str(parsed.get("service_area") or "unknown")
+        for model_name in self._candidate_models():
+            payload = {**payload_template, "model": model_name}
+            try:
+                body = self._post_responses(payload, timeout=20)
+                parsed = self._extract_output_json(body)
+                return str(parsed.get("service_area") or "unknown")
+            except (httpx.HTTPError, ValueError, json.JSONDecodeError):
+                continue
 
         return "unknown"

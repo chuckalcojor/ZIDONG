@@ -43,7 +43,12 @@ supabase = SupabaseService(
 )
 telegram = TelegramService(bot_token=settings.telegram_bot_token)
 openai_service = (
-    OpenAIService(api_key=settings.openai_api_key, model=settings.openai_model)
+    OpenAIService(
+        api_key=settings.openai_api_key,
+        model=settings.openai_model,
+        fallback_model=settings.openai_fallback_model,
+        enable_fallback=settings.openai_enable_fallback,
+    )
     if settings.openai_api_key
     else None
 )
@@ -142,6 +147,18 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "consultar resultados",
         "estado de resultado",
         "estado de la muestra",
+        "me compartes el diagnostico",
+        "compartes el diagnostico",
+        "informe",
+        "reporte",
+        "dictamen",
+        "lectura",
+        "seguimiento",
+        "trazabilidad",
+        "estado del caso",
+        "estado de orden",
+        "cerraron el estudio",
+        "publicado el analisis",
     ),
     "accounting": (
         "contabilidad",
@@ -153,6 +170,14 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "cobro",
         "deuda",
         "financiera",
+        "abono",
+        "saldo",
+        "estado de cuenta",
+        "cierre contable",
+        "conciliar",
+        "diferencia en valores",
+        "cargo en mi cuenta",
+        "monto",
     ),
     "new_client": (
         "cliente nuevo",
@@ -168,6 +193,8 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "no estoy registrada",
         "no estoy en la base",
         "primera vez",
+        "vincular mi veterinaria",
+        "vincular mi clinica",
     ),
 }
 SMALL_TALK_TOKENS = {
@@ -390,6 +417,17 @@ def detect_explicit_service_area(text: str) -> str | None:
         "diagnost",
         "entrega",
         "list",
+        "seguimiento",
+        "trazabilidad",
+        "dictamen",
+        "lectura",
+        "orden",
+        "estudio",
+        "analisi",
+        "procesamiento",
+        "caso",
+        "publicado",
+        "salida",
     }
     accounting_tokens = {
         "contabilidad",
@@ -398,10 +436,17 @@ def detect_explicit_service_area(text: str) -> str | None:
         "cartera",
         "pago",
         "cobro",
+        "cobrad",
+        "financiero",
         "deuda",
         "abono",
         "saldo",
         "cuenta",
+        "corte",
+        "conciliar",
+        "diferencia",
+        "monto",
+        "valor",
     }
     new_client_tokens = {
         "registro",
@@ -413,6 +458,17 @@ def detect_explicit_service_area(text: str) -> str | None:
         "alta",
         "vincul",
         "afiliar",
+        "onboarding",
+        "formalizar",
+        "ingreso",
+        "ingresar",
+        "iniciar",
+        "habilitar",
+        "historial",
+        "aliado",
+        "trabajar",
+        "base",
+        "primeravez",
     }
     route_direct_tokens = {
         "ruta",
@@ -426,6 +482,10 @@ def detect_explicit_service_area(text: str) -> str | None:
         "mensajero",
         "pickup",
         "logistica",
+        "tubo",
+        "tubos",
+        "material",
+        "biologico",
     }
     route_action_tokens = {
         "mandar",
@@ -443,12 +503,16 @@ def detect_explicit_service_area(text: str) -> str | None:
         "tramitar",
         "despachar",
         "tomar",
+        "mover",
+        "pasar",
+        "gestionar",
+        "remitir",
+        "activar",
     }
     sample_tokens = {
         "muestra",
         "muestr",
         "analisi",
-        "laboratorio",
         "prueba",
         "prueb",
         "examen",
@@ -484,23 +548,29 @@ def detect_explicit_service_area(text: str) -> str | None:
         scores["route_scheduling"] += 4
     if has_route_action_signal:
         scores["route_scheduling"] += 2
-    if has_sample_signal:
+    if has_sample_signal and (has_route_action_signal or has_route_direct_signal):
         scores["route_scheduling"] += 2
     if has_sample_signal and has_route_action_signal:
         scores["route_scheduling"] += 3
 
     if has_results_signal:
         scores["results"] += 4
+    if has_results_signal and has_sample_signal and not has_route_direct_signal:
+        scores["results"] += 2
     if has_accounting_signal:
         scores["accounting"] += 4
     if has_new_client_signal:
-        scores["new_client"] += 3
+        scores["new_client"] += 4
 
     if has_new_client_signal and has_route_action_signal:
         scores["route_scheduling"] += 2
         scores["new_client"] -= 1
     if has_results_signal and has_route_action_signal and has_sample_signal:
         scores["route_scheduling"] += 2
+    if has_results_signal and not has_route_action_signal and not has_route_direct_signal:
+        scores["route_scheduling"] -= 2
+    if has_new_client_signal and not has_route_direct_signal:
+        scores["route_scheduling"] -= 2
 
     ranking = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     best_area, best_score = ranking[0]
@@ -522,6 +592,57 @@ def detect_semantic_service_area_hint(text: str) -> str | None:
 
     if is_greeting_only(text) or is_small_talk_only(text):
         return None
+
+    semantic_keywords: dict[str, tuple[str, ...]] = {
+        "results": (
+            "seguimiento",
+            "trazabilidad",
+            "dictamen",
+            "lectura",
+            "avance del procesamiento",
+            "estado del caso",
+            "salida del informe",
+            "cerraron el estudio",
+            "publicado el analisis",
+        ),
+        "new_client": (
+            "onboarding",
+            "formalizar mi ingreso",
+            "nunca he usado",
+            "primera vez",
+            "vincularme",
+            "dar de alta mi negocio",
+            "empezar a trabajar con ustedes",
+            "nuevo aliado",
+            "quiero iniciar",
+            "base de clientes",
+        ),
+        "accounting": (
+            "conciliar pagos",
+            "cuadrar",
+            "cierre contable",
+            "montos",
+            "cargo en mi cuenta",
+        ),
+        "route_scheduling": (
+            "recogida",
+            "retiro",
+            "despacho",
+            "motorizado",
+            "muestras urgentes",
+            "logistica",
+            "pasen por",
+        ),
+    }
+    semantic_scores: dict[str, int] = {
+        area: sum(1 for pattern in patterns if pattern in normalized)
+        for area, patterns in semantic_keywords.items()
+    }
+    ranked_semantic = sorted(semantic_scores.items(), key=lambda item: item[1], reverse=True)
+    top_area, top_score = ranked_semantic[0]
+    second_score = ranked_semantic[1][1]
+    if top_score >= 2 or (top_score >= 1 and top_score > second_score):
+        return top_area
 
     classify_fn = getattr(openai_service, "classify_service_area", None)
     if not callable(classify_fn):
@@ -2104,8 +2225,22 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         )
     except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
         print(f"[telegram] openai_fallback reason={type(exc).__name__} chat_id={chat_id}")
-        run_legacy_flow(chat_id, text, client, client_id)
-        return
+        turn = {
+            "intent": "no_clasificado",
+            "service_area": "unknown",
+            "phase_current": "fase_1_clasificacion",
+            "phase_next": "fase_2_recogida_datos",
+            "status": "in_progress",
+            "missing_fields": [],
+            "captured_fields": ai_state.get("captured_fields") or {},
+            "requires_handoff": False,
+            "handoff_area": "none",
+            "next_action": "continuar_conversacion",
+            "message_mode": "flow_progress",
+            "resume_prompt": "",
+            "confidence": 0.35,
+            "reply": "Gracias, te ayudo con eso.",
+        }
 
     intent = turn.get("intent", "no_clasificado")
     if intent not in VALID_INTENTS:
@@ -2116,7 +2251,13 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         and (session or {}).get("next_action") == "solicitar_nif_o_nombre_fiscal"
         and session_service_area == "route_scheduling"
     )
+    extracted_tax_id = extract_tax_id_candidate(text)
+    extracted_results_reference = extract_results_reference(text)
     explicit_area = detect_explicit_service_area(text)
+    if not explicit_area and session_service_area == "route_scheduling" and extracted_tax_id:
+        explicit_area = "route_scheduling"
+    if not explicit_area and session_service_area == "results" and extracted_results_reference:
+        explicit_area = "results"
     if pending_route_identifier and explicit_area == "new_client" and not user_declares_not_registered(text):
         explicit_area = "route_scheduling"
     if not explicit_area and len(normalize_lookup_key(text)) >= 8:
@@ -2128,6 +2269,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     numeric_menu_option = detect_numeric_menu_option(text)
     if numeric_menu_option in {"route_scheduling", "results", "accounting", "new_client"}:
         explicit_area = numeric_menu_option
+    special_menu_option = detect_special_menu_option(text)
 
     if explicit_area and service_area != explicit_area:
         service_area = explicit_area
@@ -2142,6 +2284,17 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         if not explicit_area or explicit_area == "route_scheduling":
             service_area = "route_scheduling"
             intent = "programacion_rutas"
+
+    if (
+        session
+        and service_area == "unknown"
+        and session_service_area in {"route_scheduling", "results", "accounting", "new_client"}
+        and not explicit_area
+        and not special_menu_option
+        and not is_explicit_intent_switch(text)
+    ):
+        service_area = session_service_area
+        intent = session_intent
 
     phase_current = turn.get("phase_current", "fase_1_clasificacion")
     phase_next = turn.get("phase_next", "fase_2_recogida_datos")
@@ -2164,7 +2317,6 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     reply = (turn.get("reply") or "Gracias. Te ayudo con eso.").strip()
     follow_up_message = ""
 
-    special_menu_option = detect_special_menu_option(text)
     if special_menu_option == "pqrs":
         intent = "no_clasificado"
         service_area = "unknown"
@@ -2193,6 +2345,23 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         message_mode = "intent_switch"
         resume_prompt = ""
         reply = OTHER_QUERIES_MESSAGE
+
+    if service_area == "unknown" and special_menu_option is None:
+        recovery_area = detect_explicit_service_area(text) or detect_semantic_service_area_hint(text)
+        if recovery_area in {"route_scheduling", "results", "accounting", "new_client"}:
+            service_area = recovery_area
+            intent = {
+                "route_scheduling": "programacion_rutas",
+                "results": "resultados",
+                "accounting": "contabilidad",
+                "new_client": "alta_cliente",
+            }.get(recovery_area, intent)
+            if next_action in {"atender_otra_consulta", "solicitar_clasificacion"}:
+                next_action = normalize_next_action_token(
+                    "continuar_conversacion",
+                    service_area=service_area,
+                    status=status,
+                )
 
     if not isinstance(captured_fields, dict):
         captured_fields = {}
