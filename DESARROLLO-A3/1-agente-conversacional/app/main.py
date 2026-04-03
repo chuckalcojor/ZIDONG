@@ -90,6 +90,56 @@ VALID_NEXT_ACTIONS = {
     "share_pqrs_link",
     "atender_otra_consulta",
 }
+CATALOG_QUERY_STOPWORDS = {
+    "de",
+    "del",
+    "la",
+    "el",
+    "los",
+    "las",
+    "por",
+    "para",
+    "con",
+    "sin",
+    "que",
+    "como",
+    "cual",
+    "cuales",
+    "cuanto",
+    "cuantos",
+    "cuanta",
+    "cuantas",
+    "valor",
+    "valores",
+    "precio",
+    "precios",
+    "costo",
+    "costos",
+    "tarifa",
+    "tarifas",
+    "tipo",
+    "tipos",
+    "hacen",
+    "hace",
+    "ofrecen",
+    "manejan",
+    "tienen",
+    "tiene",
+    "servicios",
+    "servicio",
+    "analisis",
+    "examen",
+    "examenes",
+    "prueba",
+    "pruebas",
+    "necesito",
+    "quiero",
+    "me",
+    "ayudas",
+    "ayuda",
+    "favor",
+    "porfa",
+}
 EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
     "route_scheduling": (
         "programacion de ruta",
@@ -904,6 +954,209 @@ def is_price_or_services_inquiry(text: str) -> bool:
         return True
 
     return False
+
+
+def format_price_cop(value: Any) -> str:
+    try:
+        amount = int(float(str(value)))
+    except (TypeError, ValueError):
+        return ""
+    if amount <= 0:
+        return ""
+    return f"${amount:,}".replace(",", ".") + " COP"
+
+
+def format_turnaround_for_reply(row: dict[str, Any]) -> str:
+    subcategory = str(row.get("subcategory") or "").strip()
+    if subcategory:
+        return subcategory
+
+    hours_raw = row.get("turnaround_hours")
+    try:
+        hours = int(float(str(hours_raw)))
+    except (TypeError, ValueError):
+        return ""
+
+    if hours <= 0:
+        return ""
+    if hours % 24 == 0:
+        days = hours // 24
+        return f"{days} dia(s)"
+    return f"{hours} hora(s)"
+
+
+def catalog_query_tokens(text: str) -> set[str]:
+    normalized = normalize_lookup_key(text)
+    raw_tokens = re.findall(r"[a-z0-9]+", normalized)
+    tokens = {
+        token
+        for token in raw_tokens
+        if len(token) >= 3 and token not in CATALOG_QUERY_STOPWORDS
+    }
+    return tokens
+
+
+def catalog_row_search_blob(row: dict[str, Any]) -> str:
+    return normalize_lookup_key(
+        " ".join(
+            [
+                str(row.get("test_code") or ""),
+                str(row.get("test_name") or ""),
+                str(row.get("category") or ""),
+                str(row.get("subcategory") or ""),
+                str(row.get("sample_type") or ""),
+            ]
+        )
+    )
+
+
+def rank_catalog_matches(text: str, catalog_rows: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
+    normalized = normalize_lookup_key(text)
+    query_tokens = catalog_query_tokens(text)
+    ranked: list[tuple[int, dict[str, Any]]] = []
+
+    for row in catalog_rows:
+        blob = catalog_row_search_blob(row)
+        if not blob:
+            continue
+
+        code = normalize_lookup_key(str(row.get("test_code") or ""))
+        name = normalize_lookup_key(str(row.get("test_name") or ""))
+        row_tokens = {token for token in re.findall(r"[a-z0-9]+", blob) if len(token) >= 3}
+
+        score = 0
+        if code and code in normalized:
+            score += 12
+        if name and len(name) >= 5 and name in normalized:
+            score += 8
+
+        overlap = len(query_tokens & row_tokens)
+        score += overlap * 3
+
+        if query_tokens and query_tokens.issubset(row_tokens):
+            score += 3
+
+        if score > 0:
+            ranked.append((score, row))
+
+    ranked.sort(
+        key=lambda item: (
+            item[0],
+            str(item[1].get("test_name") or "").lower(),
+        ),
+        reverse=True,
+    )
+    return ranked
+
+
+def build_catalog_guidance_reply(text: str) -> str | None:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return None
+
+    inquiry_detected = is_price_or_services_inquiry(text) or any(
+        token in normalized for token in ("analisis", "examen", "prueba", "perfil", "panel")
+    )
+    if not inquiry_detected:
+        return None
+
+    list_catalog = getattr(supabase, "list_catalog_tests", None)
+    if not callable(list_catalog):
+        return None
+
+    try:
+        raw_catalog = list_catalog(limit=4000)
+    except httpx.HTTPStatusError:
+        return None
+
+    catalog_rows = [
+        row
+        for row in ensure_dict_rows(raw_catalog)
+        if row and row.get("is_active") is not False
+    ]
+    if not catalog_rows:
+        return (
+            "Puedo ayudarte con los servicios del laboratorio y precios aproximados. "
+            "En este momento no tengo cargado el catalogo detallado, pero si me dices el examen te oriento."
+        )
+
+    ranked = rank_catalog_matches(text, catalog_rows)
+    wants_price = any(
+        token in normalized
+        for token in (
+            "precio",
+            "precios",
+            "valor",
+            "valores",
+            "costo",
+            "costos",
+            "tarifa",
+            "tarifas",
+            "cuanto",
+            "cuanto sale",
+            "cuanto cuesta",
+        )
+    )
+
+    if ranked and ranked[0][0] >= 5:
+        best = ranked[0][1]
+        test_name = str(best.get("test_name") or "este analisis").strip()
+        code = str(best.get("test_code") or "").strip()
+        price_label = format_price_cop(best.get("price_cop"))
+        turnaround_label = format_turnaround_for_reply(best)
+
+        parts: list[str] = ["Claro, en nuestros servicios de laboratorio"]
+        if code:
+            parts.append(f"el examen {test_name} (codigo {code})")
+        else:
+            parts.append(f"el examen {test_name}")
+
+        if price_label:
+            parts.append(f"tiene un valor referencial de {price_label}")
+        else:
+            parts.append("esta disponible para cotizacion")
+
+        if turnaround_label:
+            parts.append(f"y un tiempo estimado de {turnaround_label}")
+
+        message = " ".join(parts).strip() + "."
+        if wants_price:
+            return f"{message} Si quieres, te comparto opciones similares o te ayudo a programar la recogida."
+        return f"{message} Si me indicas el examen puntual que necesitas, te doy el valor aproximado y el proceso."
+
+    category_counter: Counter[str] = Counter()
+    for row in catalog_rows:
+        category = str(row.get("category") or "").strip()
+        if category:
+            category_counter[category] += 1
+
+    top_categories = [name for name, _count in category_counter.most_common(4)]
+    category_label = ", ".join(top_categories) if top_categories else "distintos tipos de examenes"
+
+    suggestions = [
+        str(row.get("test_name") or "").strip()
+        for _score, row in ranked[:2]
+        if str(row.get("test_name") or "").strip()
+    ]
+    if len(suggestions) < 2:
+        for row in catalog_rows[:5]:
+            name = str(row.get("test_name") or "").strip()
+            if name and name not in suggestions:
+                suggestions.append(name)
+            if len(suggestions) >= 2:
+                break
+
+    if suggestions:
+        sample_label = " y ".join(suggestions[:2])
+        return (
+            f"Claro, manejamos servicios como {category_label}. "
+            f"Por ejemplo, {sample_label}. Si me dices el examen exacto o codigo, te comparto valor referencial en COP y tiempo estimado."
+        )
+
+    return (
+        "Claro, puedo orientarte con los servicios del laboratorio. "
+        "Si me dices el examen exacto o codigo, te comparto valor referencial en COP y tiempo estimado."
+    )
 
 
 def should_split_first_greeting(text: str) -> bool:
@@ -2352,6 +2605,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     confidence = turn.get("confidence", 0.5)
     reply = (turn.get("reply") or "Gracias. Te ayudo con eso.").strip()
     follow_up_message = ""
+    catalog_guidance_reply = build_catalog_guidance_reply(text)
 
     if special_menu_option == "pqrs":
         intent = "no_clasificado"
@@ -2459,9 +2713,9 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         missing_fields = []
         message_mode = "intent_switch"
         resume_prompt = ""
-        reply = (
+        reply = catalog_guidance_reply or (
             "Claro, puedo orientarte con servicios, precios aproximados y procesos del laboratorio. "
-            "Cuéntame qué examen o necesidad tienes y te ayudo de inmediato."
+            "Cuentame que examen o necesidad tienes y te ayudo de inmediato."
         )
 
     if service_area == "results":
@@ -2532,6 +2786,11 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             follow_up_message = ""
             next_action = "solicitar_clasificacion"
             phase_current = "fase_1_clasificacion"
+        elif catalog_guidance_reply:
+            reply = catalog_guidance_reply
+            follow_up_message = ""
+            next_action = "atender_otra_consulta"
+            phase_current = "fase_1_clasificacion"
         else:
             reply = INITIAL_GREETING_MESSAGE
             phase_current = "fase_0_bienvenida"
@@ -2570,6 +2829,26 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             follow_up_message = ""
         else:
             reply = INTENT_CLARIFICATION_MESSAGE
+
+    if (
+        catalog_guidance_reply
+        and special_menu_option is None
+        and (is_price_or_services_inquiry(text) or is_help_inquiry(text))
+        and not is_greeting_only(text)
+    ):
+        intent = "no_clasificado"
+        service_area = "unknown"
+        phase_current = "fase_1_clasificacion"
+        phase_next = "fase_2_recogida_datos"
+        status = "in_progress"
+        requires_handoff = False
+        handoff_area = "none"
+        next_action = "atender_otra_consulta"
+        missing_fields = []
+        message_mode = "intent_switch"
+        resume_prompt = ""
+        reply = catalog_guidance_reply
+        follow_up_message = ""
 
     if (
         not is_first_turn
@@ -2619,9 +2898,9 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 message_mode = "intent_switch"
                 resume_prompt = ""
                 missing_fields = []
-                reply = (
+                reply = catalog_guidance_reply or (
                     "Claro, puedo orientarte con servicios, precios aproximados y procesos del laboratorio. "
-                    "Cuéntame qué examen o necesidad tienes y te ayudo de inmediato."
+                    "Cuentame que examen o necesidad tienes y te ayudo de inmediato."
                 )
             elif attempts >= 3:
                 phase_current = "fase_2_recogida_datos"
@@ -2694,9 +2973,9 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 missing_fields = []
                 message_mode = "intent_switch"
                 resume_prompt = ""
-                reply = (
+                reply = catalog_guidance_reply or (
                     "Claro, puedo orientarte con servicios, precios aproximados y procesos del laboratorio. "
-                    "Cuéntame qué examen o necesidad tienes y te ayudo de inmediato."
+                    "Cuentame que examen o necesidad tienes y te ayudo de inmediato."
                 )
             elif special_option == "other_queries":
                 intent = "no_clasificado"

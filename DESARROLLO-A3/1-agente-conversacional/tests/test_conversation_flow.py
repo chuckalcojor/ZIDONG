@@ -16,6 +16,7 @@ class FakeSupabase:
         self.knowledge_sample_events: dict[str, list[dict]] = {}
         self.table_rows: dict[str, list[dict]] = {}
         self.client_courier_map: dict[str, dict] = {}
+        self.catalog_tests: list[dict] = []
 
     def get_client_by_phone(self, phone: str):
         for client in self.clients:
@@ -88,6 +89,9 @@ class FakeSupabase:
 
     def get_assigned_courier(self, client_id: str):
         return self.client_courier_map.get(client_id)
+
+    def list_catalog_tests(self, limit: int = 3000):
+        return self.catalog_tests[:limit]
 
     def create_conversation_stage_event(self, payload: dict):
         return payload
@@ -199,6 +203,40 @@ class ConversationFlowTests(unittest.TestCase):
                 reply="Entiendo, te ayudo con gusto.",
             )
         )
+
+    def _seed_catalog(self) -> None:
+        self.fake_supabase.catalog_tests = [
+            {
+                "test_code": "101",
+                "test_name": "Hemograma canino",
+                "category": "Hematologia",
+                "subcategory": "24 horas",
+                "sample_type": "Sangre",
+                "price_cop": 55000,
+                "turnaround_hours": 24,
+                "is_active": True,
+            },
+            {
+                "test_code": "202",
+                "test_name": "Perfil renal",
+                "category": "Quimica sanguinea",
+                "subcategory": "48 horas",
+                "sample_type": "Suero",
+                "price_cop": 85000,
+                "turnaround_hours": 48,
+                "is_active": True,
+            },
+            {
+                "test_code": "303",
+                "test_name": "Coprologico",
+                "category": "Coprologia",
+                "subcategory": "24 horas",
+                "sample_type": "Materia fecal",
+                "price_cop": 40000,
+                "turnaround_hours": 24,
+                "is_active": True,
+            },
+        ]
 
     def _build_variants(self, bases: list[str]) -> list[str]:
         prefixes = [
@@ -651,6 +689,44 @@ class ConversationFlowTests(unittest.TestCase):
         stored = self.fake_supabase.sessions["118"]
         self.assertEqual(stored["next_action"], "atender_otra_consulta")
 
+    def test_catalog_price_question_returns_specific_value_when_match_exists(self) -> None:
+        self._seed_catalog()
+        self.fake_supabase.sessions["140"] = make_session(140)
+        self._set_unknown_openai()
+
+        main.handle_telegram_message(140, "cuanto cuesta el perfil renal?")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("perfil renal", sent)
+        self.assertIn("85.000", sent)
+        self.assertIn("servicios", sent)
+        stored = self.fake_supabase.sessions["140"]
+        self.assertEqual(stored["service_area"], "unknown")
+        self.assertEqual(stored["next_action"], "atender_otra_consulta")
+
+    def test_catalog_general_services_question_returns_categories(self) -> None:
+        self._seed_catalog()
+        self.fake_supabase.sessions["141"] = make_session(141)
+        self._set_unknown_openai()
+
+        main.handle_telegram_message(141, "que tipos de analisis manejan?")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("manejamos servicios", sent)
+        self.assertIn("hematologia", sent)
+        self.assertIn("codigo", sent)
+
+    def test_catalog_unknown_exam_asks_for_specific_name_or_code(self) -> None:
+        self._seed_catalog()
+        self.fake_supabase.sessions["142"] = make_session(142)
+        self._set_unknown_openai()
+
+        main.handle_telegram_message(142, "precio de examen ultra hiper complejo")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("codigo", sent)
+        self.assertIn("valor referencial", sent)
+
     def test_numeric_menu_option_routes_to_pickup_flow(self) -> None:
         self.fake_supabase.sessions["119"] = make_session(119)
         main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
@@ -949,6 +1025,7 @@ class ConversationFlowTests(unittest.TestCase):
         self.assertIn("nombre fiscal", second.lower())
 
     def test_route_identification_price_question_switches_context(self) -> None:
+        self._seed_catalog()
         self.fake_supabase.sessions["126"] = make_session(
             126,
             intent_current="programacion_rutas",
@@ -960,11 +1037,12 @@ class ConversationFlowTests(unittest.TestCase):
         main.handle_telegram_message(126, "cuanto salen sus servicios")
 
         sent = self.fake_telegram.messages[-1][1].lower()
-        self.assertIn("servicios", sent)
+        self.assertTrue("servicios" in sent or "hemograma" in sent)
         stored = self.fake_supabase.sessions["126"]
         self.assertEqual(stored["next_action"], "atender_otra_consulta")
 
     def test_results_context_price_question_switches_context(self) -> None:
+        self._seed_catalog()
         self.fake_supabase.sessions["131"] = make_session(
             131,
             intent_current="resultados",
@@ -977,12 +1055,13 @@ class ConversationFlowTests(unittest.TestCase):
         main.handle_telegram_message(131, "quiero saber lo que salen hacer un analisis de orina")
 
         sent = self.fake_telegram.messages[-1][1].lower()
-        self.assertIn("precios", sent)
+        self.assertTrue("servicios" in sent or "analisis" in sent)
         stored = self.fake_supabase.sessions["131"]
         self.assertEqual(stored["service_area"], "unknown")
         self.assertEqual(stored["next_action"], "atender_otra_consulta")
 
     def test_results_context_service_catalog_question_switches_context(self) -> None:
+        self._seed_catalog()
         self.fake_supabase.sessions["132"] = make_session(
             132,
             intent_current="resultados",
