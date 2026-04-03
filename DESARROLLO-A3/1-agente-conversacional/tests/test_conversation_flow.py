@@ -238,6 +238,80 @@ class ConversationFlowTests(unittest.TestCase):
             },
         ]
 
+    def _seed_catalog_extended(self) -> None:
+        self.fake_supabase.catalog_tests = [
+            {
+                "test_code": "1102",
+                "test_name": "Prueba Cruzada de Coombs Tubos Tapa Morada y Tapa Roja",
+                "category": "D.C.",
+                "subcategory": "3 horas a partir de ingreso al laboratorio",
+                "sample_type": "sangre",
+                "price_cop": 28000,
+                "turnaround_hours": 3,
+                "is_active": True,
+            },
+            {
+                "test_code": "1309",
+                "test_name": "Creatinina Tubo Rojo o Amarillo",
+                "category": "D.C.",
+                "subcategory": "3 horas a partir de ingreso al laboratorio",
+                "sample_type": "sangre",
+                "price_cop": 12000,
+                "turnaround_hours": 3,
+                "is_active": True,
+            },
+            {
+                "test_code": "1701",
+                "test_name": "Coprologico Materia Fecal",
+                "category": "D.C.",
+                "subcategory": "3 horas a partir de ingreso al laboratorio",
+                "sample_type": "materia fecal",
+                "price_cop": 12000,
+                "turnaround_hours": 3,
+                "is_active": True,
+            },
+            {
+                "test_code": "1902",
+                "test_name": "Citologia Malassezia y oido Enviar 2 Laminas",
+                "category": "D.C.",
+                "subcategory": "3 horas a partir de ingreso al laboratorio",
+                "sample_type": "laminas/citologia",
+                "price_cop": 15000,
+                "turnaround_hours": 3,
+                "is_active": True,
+            },
+            {
+                "test_code": "1903",
+                "test_name": "Citologia PAF Enviar 3 Laminas",
+                "category": "D.C.",
+                "subcategory": "8 dias habiles a partir de ingreso al laboratorio",
+                "sample_type": "laminas/citologia",
+                "price_cop": 52000,
+                "turnaround_hours": 192,
+                "is_active": True,
+            },
+            {
+                "test_code": "2102",
+                "test_name": "Urocultivo y Antibiograma Orina Fresca y Esteril",
+                "category": "D.C.",
+                "subcategory": "Dependiendo del Cultivo",
+                "sample_type": "orina",
+                "price_cop": 80000,
+                "turnaround_hours": None,
+                "is_active": True,
+            },
+            {
+                "test_code": "2208",
+                "test_name": "SDMA - Vcheck Tubo Rojo o Amarillo",
+                "category": "PRUEBAS ESPECIFICAS VCHECK",
+                "subcategory": "El mismo dia",
+                "sample_type": "sangre",
+                "price_cop": 159000,
+                "turnaround_hours": 8,
+                "is_active": True,
+            },
+        ]
+
     def _build_variants(self, bases: list[str]) -> list[str]:
         prefixes = [
             "hola",
@@ -727,6 +801,120 @@ class ConversationFlowTests(unittest.TestCase):
         self.assertIn("codigo", sent)
         self.assertIn("valor referencial", sent)
 
+    def test_catalog_orina_query_groups_by_sample_type(self) -> None:
+        self.fake_supabase.catalog_tests = [
+            {
+                "test_code": "2102",
+                "test_name": "Urocultivo y Antibiograma Orina Fresca y Esteril",
+                "category": "D.C.",
+                "subcategory": "Dependiendo del Cultivo",
+                "sample_type": None,
+                "price_cop": 80000,
+                "is_active": True,
+            },
+            {
+                "test_code": "1309",
+                "test_name": "Creatinina Tubo Rojo o Amarillo",
+                "category": "D.C.",
+                "subcategory": "3 horas a partir de ingreso al laboratorio",
+                "sample_type": None,
+                "price_cop": 12000,
+                "is_active": True,
+            },
+        ]
+        self.fake_supabase.sessions["1421"] = make_session(1421)
+        self._set_unknown_openai()
+
+        main.handle_telegram_message(1421, "que analisis de orina tienen y que precio?")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("orina", sent)
+        self.assertIn("urocultivo", sent)
+
+    def test_catalog_specific_exam_includes_collection_details(self) -> None:
+        self.fake_supabase.catalog_tests = [
+            {
+                "test_code": "1102",
+                "test_name": "Prueba Cruzada de Coombs Tubos Tapa Morada y Tapa Roja",
+                "category": "D.C.",
+                "subcategory": "3 horas a partir de ingreso al laboratorio",
+                "sample_type": None,
+                "price_cop": 28000,
+                "is_active": True,
+            }
+        ]
+        self.fake_supabase.sessions["1422"] = make_session(1422)
+        self._set_unknown_openai()
+
+        main.handle_telegram_message(1422, "precio coombs")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("tapa morada", sent)
+        self.assertIn("tapa roja", sent)
+        self.assertIn("28.000", sent)
+
+    def test_catalog_stress_variants_understand_synonyms_and_tone(self) -> None:
+        self._seed_catalog_extended()
+        self._set_unknown_openai()
+
+        cases = [
+            (
+                "orina",
+                [
+                    "que examenes de orina manejan?",
+                    "soy vet, que prueba urinaria recomiendas?",
+                    "necesito uro cultivo, costo y toma",
+                    "quiero saber analisis urinarios y tiempos",
+                    "que hacen para muestra de orina",
+                ],
+            ),
+            (
+                "materia fecal",
+                [
+                    "precio coprologico",
+                    "manejan copro?",
+                    "opciones para materia fecal",
+                    "soy clinico, necesito copro y tiempo de entrega",
+                    "analisis de heces disponibles",
+                ],
+            ),
+            (
+                "sangre",
+                [
+                    "precio de coombs",
+                    "que pruebas de sangre tienen",
+                    "soy veterinario, necesito creatinina urgente",
+                    "manejan perfiles sanguineos?",
+                    "costos de analisis en tubo tapa roja",
+                ],
+            ),
+            (
+                "laminas",
+                [
+                    "citologia de oido costo",
+                    "analisis por laminas",
+                    "que hacen con paf",
+                    "opciones de citologia veterinaria",
+                    "envio 2 laminas, me ayudas con valor",
+                ],
+            ),
+        ]
+
+        chat_id = 3000
+        for expected_keyword, prompts in cases:
+            for prompt in prompts:
+                chat_id += 1
+                self.fake_supabase.sessions[str(chat_id)] = make_session(chat_id)
+                main.handle_telegram_message(chat_id, prompt)
+                sent = self.fake_telegram.messages[-1][1].lower()
+
+                with self.subTest(prompt=prompt):
+                    self.assertIn("servicios", sent)
+                    self.assertTrue(
+                        any(token in sent for token in ("valor referencial", "tiempo estimado", "toma recomendada"))
+                    )
+                    self.assertIn(expected_keyword, sent)
+
     def test_numeric_menu_option_routes_to_pickup_flow(self) -> None:
         self.fake_supabase.sessions["119"] = make_session(119)
         main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
@@ -955,6 +1143,7 @@ class ConversationFlowTests(unittest.TestCase):
 
         sent = self.fake_telegram.messages[-1][1].lower()
         self.assertIn("quedo programada", sent)
+        self.assertIn("retiro estimado es para", sent)
         stored = self.fake_supabase.sessions["127"]
         self.assertEqual(stored["next_action"], "confirmar_programacion_ruta")
 
@@ -1090,6 +1279,67 @@ class ConversationFlowTests(unittest.TestCase):
     def test_extract_clinic_hint_from_name_phrase(self) -> None:
         hint = main.extract_clinic_name_hint("Terra Pets es el nombre")
         self.assertEqual(hint, "Terra Pets")
+
+    def test_parse_clinic_and_address_from_labeled_phrase(self) -> None:
+        clinic, address = main.parse_clinic_and_address_from_text(
+            "mi veterinaria es Terra Pets y la direccion de retiro es Cra 9 # 12-34"
+        )
+        self.assertEqual(clinic, "Terra Pets")
+        self.assertEqual(address, "Cra 9 # 12-34")
+
+    def test_route_urgent_priority_is_persisted(self) -> None:
+        self.fake_supabase.sessions["1338"] = make_session(
+            1338,
+            client_id="client-urgent",
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="confirmar_direccion_retiro",
+            captured_fields={
+                "clinic_name": "Terra Pets",
+                "pickup_address": "Cra 12 # 34-56",
+            },
+        )
+        self.fake_supabase.clients.append(
+            {
+                "id": "client-urgent",
+                "clinic_name": "Terra Pets",
+                "address": "Cra 12 # 34-56",
+                "phone": "+573001112233",
+                "tax_id": "900123456",
+            }
+        )
+        self.fake_supabase.client_courier_map["client-urgent"] = {
+            "id": "courier-1",
+            "name": "Alexander",
+            "phone": "000123",
+            "availability": "available",
+        }
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="programacion_rutas",
+                service_area="route_scheduling",
+                phase_current="fase_2_recogida_datos",
+                phase_next="fase_3_validacion",
+                missing_fields=["direccion de recogida"],
+                next_action="solicitar_nif_o_nombre_fiscal",
+                reply="Perfecto, te ayudo con eso.",
+            )
+        )
+
+        main.handle_telegram_message(1338, "urgente, por favor programar retiro hoy mismo entre las 2 y las 4 pm")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("prioridad urgente", sent)
+        self.assertIn("2:00 y 4:00 pm", sent)
+        stored = self.fake_supabase.sessions["1338"]
+        self.assertEqual(stored["captured_fields"].get("priority"), "urgent")
+        self.assertEqual(stored["captured_fields"].get("pickup_time_window"), "entre 2:00 y 4:00 pm")
+        request_row = self.fake_supabase.requests_by_id[stored["request_id"]]
+        self.assertEqual(request_row.get("priority"), "urgent")
+
+    def test_detect_route_time_window_from_colloquial_phrase(self) -> None:
+        value = main.detect_route_time_window("si pueden pasar en la tarde", {})
+        self.assertEqual(value, "jornada de la tarde")
 
     def test_new_client_registration_webhook_syncs_to_supabase_tables(self) -> None:
         main.settings.new_client_form_webhook_secret = "secret-a3"

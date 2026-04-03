@@ -75,11 +75,12 @@ def calculate_schedule(received_at_iso: str, cutoff: str = "17:30") -> dict:
     )
 
     if received_at <= cutoff_time and is_business_day(received_at):
-        scheduled_date = received_at.date()
-        reason = "same_day"
-    else:
         scheduled_date = next_business_day(received_at).date()
-        reason = "next_business_day"
+        reason = "next_business_day_before_cutoff"
+    else:
+        first_business_day = next_business_day(received_at)
+        scheduled_date = next_business_day(first_business_day).date()
+        reason = "second_business_day_after_cutoff"
 
     return {
         "received_at": received_at_iso,

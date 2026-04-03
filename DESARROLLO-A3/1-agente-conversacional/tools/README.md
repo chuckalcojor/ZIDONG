@@ -16,6 +16,7 @@ This folder contains atomic Python scripts used by the Navigation layer.
 - `build_clients_a3_index.py`: builds a normalized SQLite index from `Clientes a3.xlsx` for fast lookup of clinics, professionals, and sample status events.
 - `query_clients_a3_index.py`: queries the normalized SQLite index by clinic and sample status.
 - `sync_clients_a3_index_to_supabase.py`: syncs the normalized SQLite index into Supabase tables (`clients_a3_knowledge`, `clients_a3_professionals`, `clients_a3_sample_events`).
+- `evaluate_gpt5_conversation.py`: executes stress benchmark (single-turn, multi-turn and quality dimensions: comprehension, coherence, naturality, utility, safety).
 
 ## Usage Pattern
 
@@ -57,4 +58,16 @@ Sync to Supabase (after applying `3-conexiones/architecture/sql/006_clients_a3_k
 
 ```bash
 py tools/sync_clients_a3_index_to_supabase.py
+```
+
+Run conversational benchmark:
+
+```bash
+py tools/evaluate_gpt5_conversation.py --areas all --single-turn-samples 80 --multiturn-samples 20 --offline-stub
+```
+
+Run benchmark without quality suite (faster):
+
+```bash
+py tools/evaluate_gpt5_conversation.py --areas route_scheduling,results --single-turn-samples 40 --skip-quality-suite --offline-stub
 ```

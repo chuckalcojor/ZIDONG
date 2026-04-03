@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import json
 import hashlib
+import time
 from collections import Counter
 from datetime import datetime
 from functools import wraps
@@ -52,6 +53,11 @@ openai_service = (
     if settings.openai_api_key
     else None
 )
+OPENAI_FAILURE_STREAK = 0
+OPENAI_CIRCUIT_UNTIL = 0.0
+OPENAI_CIRCUIT_THRESHOLD = 2
+OPENAI_CIRCUIT_SECONDS = 300
+OPENAI_WARMUP_DONE = False
 
 FLOW_STAGES: list[tuple[str, str]] = [
     ("fase_0_bienvenida", "Bienvenida"),
@@ -78,6 +84,65 @@ VALID_MESSAGE_MODES = {
     "intent_switch",
     "small_talk",
 }
+
+
+def build_openai_fallback_turn(ai_state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "intent": "no_clasificado",
+        "service_area": "unknown",
+        "phase_current": "fase_1_clasificacion",
+        "phase_next": "fase_2_recogida_datos",
+        "status": "in_progress",
+        "missing_fields": [],
+        "captured_fields": ai_state.get("captured_fields") or {},
+        "requires_handoff": False,
+        "handoff_area": "none",
+        "next_action": "continuar_conversacion",
+        "message_mode": "flow_progress",
+        "resume_prompt": "",
+        "confidence": 0.35,
+        "reply": "Gracias, te ayudo con eso.",
+    }
+
+
+def openai_circuit_active() -> bool:
+    return time.time() < OPENAI_CIRCUIT_UNTIL
+
+
+def register_openai_success() -> None:
+    global OPENAI_FAILURE_STREAK, OPENAI_CIRCUIT_UNTIL
+    OPENAI_FAILURE_STREAK = 0
+    OPENAI_CIRCUIT_UNTIL = 0.0
+
+
+def register_openai_failure() -> None:
+    global OPENAI_FAILURE_STREAK, OPENAI_CIRCUIT_UNTIL
+    OPENAI_FAILURE_STREAK += 1
+    if OPENAI_FAILURE_STREAK >= OPENAI_CIRCUIT_THRESHOLD:
+        OPENAI_CIRCUIT_UNTIL = time.time() + OPENAI_CIRCUIT_SECONDS
+
+
+def ensure_openai_warmup() -> None:
+    global OPENAI_WARMUP_DONE
+    if OPENAI_WARMUP_DONE:
+        return
+    OPENAI_WARMUP_DONE = True
+
+    if openai_service is None:
+        return
+
+    health_check = getattr(openai_service, "quick_health_check", None)
+    if not callable(health_check):
+        return
+
+    if health_check(timeout=4):
+        register_openai_success()
+        print("[telegram] openai_warmup_ok")
+        return
+
+    register_openai_failure()
+    register_openai_failure()
+    print("[telegram] openai_warmup_failed circuit_opened")
 VALID_NEXT_ACTIONS = {
     "continuar_conversacion",
     "solicitar_clasificacion",
@@ -140,6 +205,152 @@ CATALOG_QUERY_STOPWORDS = {
     "favor",
     "porfa",
 }
+CATALOG_SAMPLE_GROUP_HINTS: dict[str, tuple[str, ...]] = {
+    "sangre": (
+        "sangre",
+        "sanguineo",
+        "sanguinea",
+        "sanguineos",
+        "sanguineas",
+        "tubo",
+        "suero",
+        "plasma",
+        "edta",
+        "tapa roja",
+        "tapa morada",
+        "tapa azul",
+        "tapa lila",
+    ),
+    "orina": ("orina", "urinaria", "urinario", "urinarias", "urinarios", "uroanal", "urocultivo"),
+    "materia fecal": ("materia fecal", "copro", "heces"),
+    "laminas/citologia": ("lamina", "laminas", "citologia", "paf", "frotis"),
+    "piel y pelos": ("piel", "pelo", "pelos", "raspado", "acaro"),
+    "secreciones": ("secrecion", "secreciones", "oido", "nasal", "vaginal"),
+    "microbiologia/cultivo": (
+        "cultivo",
+        "antibiograma",
+        "antifungigrama",
+        "hemocultivo",
+        "urocultivo",
+        "hongos",
+        "bacteria",
+    ),
+}
+CATALOG_CLINICAL_GROUP_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "hematologia y hemostasia",
+        (
+            "hemograma",
+            "hemoglobina",
+            "hematocrito",
+            "reticuloc",
+            "plaqueta",
+            "coombs",
+            "protrombina",
+            "tromboplastina",
+            "fibrinog",
+            "dimero",
+            "coagul",
+        ),
+    ),
+    (
+        "bioquimica y metabolismo",
+        (
+            "alanino",
+            "aspartato",
+            "albumina",
+            "amilasa",
+            "bilirrub",
+            "colesterol",
+            "creatinina",
+            "quinasa",
+            "ldh",
+            "fosfatasa",
+            "fructosamina",
+            "glucosa",
+            "urea",
+            "bun",
+            "proteina",
+            "globulina",
+            "triglicer",
+            "lipasa",
+            "electrolitos",
+            "sodio",
+            "potasio",
+            "cloro",
+            "calcio",
+            "fosforo",
+            "magnesio",
+            "acido urico",
+            "gamma glutamil",
+            "colinesterasa",
+            "amonio",
+        ),
+    ),
+    (
+        "endocrinologia",
+        ("t3", "t4", "tsh", "cortisol", "progesterona", "insulina", "tiroid", "estradiol"),
+    ),
+    (
+        "parasitologia e infecciosas",
+        (
+            "copro",
+            "parasito",
+            "hemoparas",
+            "ehrlich",
+            "anaplas",
+            "babesia",
+            "leishmania",
+            "giardia",
+            "parvo",
+            "corona",
+            "distemper",
+            "moquillo",
+            "fiv",
+            "felv",
+            "toxoplas",
+            "brucella",
+            "leptosp",
+            "calicivirus",
+            "adenovirus",
+            "panleucopenia",
+            "dirofilaria",
+            "trypanosoma",
+        ),
+    ),
+    (
+        "microbiologia y micologia",
+        ("cultivo", "antibiograma", "antifungigrama", "micologico", "hongos", "bacteria"),
+    ),
+    (
+        "citologia y patologia celular",
+        ("citologia", "paf", "ascitico", "pleura", "nasal", "tvt", "malassezia", "sinovial"),
+    ),
+    (
+        "inmunologia y serologia",
+        ("anticuerpo", "antigeno", "inmunorreactiva", "elisa", "ifa", "serologia", "vcheck"),
+    ),
+)
+PROFESSIONAL_AUDIENCE_TOKENS = {
+    "hemograma",
+    "hematocrito",
+    "pt",
+    "ptt",
+    "fibrinogeno",
+    "coprologico",
+    "coproscopico",
+    "urocultivo",
+    "antibiograma",
+    "paf",
+    "cito",
+    "perfil",
+    "t4",
+    "tsh",
+    "sdma",
+    "troponina",
+    "resultados",
+    "muestra",
+}
 EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
     "route_scheduling": (
         "programacion de ruta",
@@ -164,9 +375,16 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "enviar pruebas",
         "enviar examen",
         "enviar examenes",
+        "enviar un examen al laboratorio",
+        "enviar examenes al laboratorio",
         "mandar una prueba a analizar",
         "mandar prueba a analizar",
+        "mandar unas pruebas",
         "mandar examen a analizar",
+        "me recogen unos examenes",
+        "remitir examenes",
+        "tengo tubos y laminas para procesamiento",
+        "tengo cosas para laboratorio",
         "procesar muestra",
         "procesar prueba",
         "procesar examen",
@@ -197,6 +415,8 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "consultar resultados",
         "estado de resultado",
         "estado de la muestra",
+        "como va el examen",
+        "de mi paciente",
         "me compartes el diagnostico",
         "compartes el diagnostico",
         "informe",
@@ -208,6 +428,9 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "estado del caso",
         "estado de orden",
         "cerraron el estudio",
+        "estado de muestra remitida",
+        "vengo por estado de una muestra",
+        "quiero ver si ya cerraron",
         "publicado el analisis",
     ),
     "accounting": (
@@ -223,6 +446,9 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "abono",
         "saldo",
         "estado de cuenta",
+        "cuenta pendiente",
+        "saldo pendiente",
+        "pendientes contables",
         "cierre contable",
         "conciliar",
         "diferencia en valores",
@@ -245,6 +471,13 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
         "primera vez",
         "vincular mi veterinaria",
         "vincular mi clinica",
+        "vincular la clinica",
+        "crear el perfil de mi clinica",
+        "crear el perfil de la clinica",
+        "perfil de mi clinica",
+        "no estoy inscrito",
+        "quiero empezar con ustedes",
+        "abrir cuenta",
     ),
 }
 SMALL_TALK_TOKENS = {
@@ -451,9 +684,71 @@ def detect_explicit_service_area(text: str) -> str | None:
     if not normalized:
         return None
 
-    for service_area, patterns in EXPLICIT_INTENT_PATTERNS.items():
-        if any(pattern in normalized for pattern in patterns):
-            return service_area
+    first_clause = re.split(r"\b(?:y luego|y despues|despues|luego)\b", normalized, maxsplit=1)[0].strip()
+    if first_clause and first_clause != normalized:
+        if any(token in first_clause for token in ("registr", "cliente nuevo", "primera vez", "alta", "abrir cuenta")):
+            return "new_client"
+        if any(token in first_clause for token in ("factura", "cartera", "saldo", "cuenta pendiente", "cobro")):
+            return "accounting"
+        if any(token in first_clause for token in ("resultado", "informe", "estado de muestra", "estado del resultado", "orden")):
+            return "results"
+        if any(token in first_clause for token in ("programar", "recogida", "retiro", "ruta", "enviar muestra", "recoleccion")):
+            return "route_scheduling"
+
+    normalized_lookup = normalize_lookup_key(text)
+    catalog_like_markers = ("orina", "copro", "heces", "lamina", "citologia", "coombs", "creatinina")
+    if (
+        is_price_or_services_inquiry(text)
+        and any(marker in normalized_lookup for marker in catalog_like_markers)
+        and not any(marker in normalized_lookup for marker in ("resultado", "resultados", "informe", "orden"))
+        and not is_route_operational_request(text)
+    ):
+        return None
+
+    pattern_hits: dict[str, list[str]] = {
+        service_area: [pattern for pattern in patterns if pattern in normalized]
+        for service_area, patterns in EXPLICIT_INTENT_PATTERNS.items()
+    }
+    if any(pattern_hits.values()):
+        if pattern_hits.get("new_client") and (
+            "registr" in normalized or "primera vez" in normalized or "vincular" in normalized
+        ):
+            return "new_client"
+        if pattern_hits.get("route_scheduling") and is_route_operational_request(text):
+            return "route_scheduling"
+        if "primera vez" in normalized and pattern_hits.get("new_client"):
+            return "new_client"
+        if (
+            "cuenta pendiente" in normalized
+            or "saldo pendiente" in normalized
+            or ("factura" in normalized and "saldo" in normalized)
+        ) and pattern_hits.get("accounting"):
+            return "accounting"
+
+        score_by_area: dict[str, int] = {}
+        for service_area, hits in pattern_hits.items():
+            if not hits:
+                score_by_area[service_area] = 0
+                continue
+            longest = max(len(pattern) for pattern in hits)
+            score = len(hits) * 10 + longest
+            if service_area == "accounting" and any(
+                token in normalized for token in ("factura", "cartera", "saldo", "pago", "cuenta")
+            ):
+                score += 12
+            if service_area == "new_client" and any(
+                token in normalized for token in ("registro", "registr", "primera vez", "alta", "nuevo")
+            ):
+                score += 12
+            if service_area == "results" and any(
+                token in normalized for token in ("resultado", "informe", "orden", "dictamen")
+            ):
+                score += 8
+            score_by_area[service_area] = score
+
+        ranked_hits = sorted(score_by_area.items(), key=lambda item: item[1], reverse=True)
+        if ranked_hits and ranked_hits[0][1] > 0:
+            return ranked_hits[0][0]
 
     tokens = extract_intent_tokens(normalized)
     if not tokens:
@@ -465,7 +760,6 @@ def detect_explicit_service_area(text: str) -> str | None:
         "informe",
         "report",
         "diagnost",
-        "entrega",
         "list",
         "seguimiento",
         "trazabilidad",
@@ -473,7 +767,6 @@ def detect_explicit_service_area(text: str) -> str | None:
         "lectura",
         "orden",
         "estudio",
-        "analisi",
         "procesamiento",
         "caso",
         "publicado",
@@ -496,7 +789,6 @@ def detect_explicit_service_area(text: str) -> str | None:
         "conciliar",
         "diferencia",
         "monto",
-        "valor",
     }
     new_client_tokens = {
         "registro",
@@ -532,20 +824,24 @@ def detect_explicit_service_area(text: str) -> str | None:
         "mensajero",
         "pickup",
         "logistica",
-        "tubo",
-        "tubos",
         "material",
         "biologico",
+        "pasen",
+        "pasan",
+        "clinica",
     }
     route_action_tokens = {
         "mandar",
+        "mando",
         "enviar",
+        "envio",
         "analizar",
         "programar",
         "agendar",
         "retiro",
         "retirar",
         "recoger",
+        "recogen",
         "recolectar",
         "remitir",
         "coordinar",
@@ -569,6 +865,10 @@ def detect_explicit_service_area(text: str) -> str | None:
         "exam",
         "panel",
         "perfil",
+        "lamina",
+        "laminas",
+        "tubo",
+        "tubos",
         "serologia",
         "hematologia",
         "coprologia",
@@ -586,6 +886,7 @@ def detect_explicit_service_area(text: str) -> str | None:
     has_route_direct_signal = bool(tokens & route_direct_tokens)
     has_route_action_signal = bool(tokens & route_action_tokens)
     has_sample_signal = bool(tokens & sample_tokens)
+    price_signal = is_price_or_services_inquiry(text)
 
     scores = {
         "route_scheduling": 0,
@@ -600,7 +901,11 @@ def detect_explicit_service_area(text: str) -> str | None:
         scores["route_scheduling"] += 2
     if has_sample_signal and (has_route_action_signal or has_route_direct_signal):
         scores["route_scheduling"] += 2
-    if has_sample_signal and has_route_action_signal:
+    if has_sample_signal and has_route_action_signal and not price_signal:
+        scores["route_scheduling"] += 3
+    if "laboratorio" in tokens and (
+        "enviar" in tokens or "envio" in tokens or "mandar" in tokens or "recogen" in tokens
+    ) and not price_signal:
         scores["route_scheduling"] += 3
 
     if has_results_signal:
@@ -609,8 +914,19 @@ def detect_explicit_service_area(text: str) -> str | None:
         scores["results"] += 2
     if has_accounting_signal:
         scores["accounting"] += 4
+    if "cuenta" in tokens and ("pendiente" in tokens or "saldo" in tokens):
+        scores["accounting"] += 3
+        scores["results"] -= 1
     if has_new_client_signal:
         scores["new_client"] += 4
+    if ("habilitar" in tokens or "aliado" in tokens or "primera" in tokens) and has_new_client_signal:
+        scores["new_client"] += 3
+        scores["accounting"] -= 2
+    if "cuenta" in tokens and has_new_client_signal:
+        scores["new_client"] += 2
+    if "primera" in tokens and "vez" in tokens:
+        scores["new_client"] += 4
+        scores["results"] -= 2
 
     if has_new_client_signal and has_route_action_signal:
         scores["route_scheduling"] += 2
@@ -621,6 +937,12 @@ def detect_explicit_service_area(text: str) -> str | None:
         scores["route_scheduling"] -= 2
     if has_new_client_signal and not has_route_direct_signal:
         scores["route_scheduling"] -= 2
+    if "pasen" in tokens and has_sample_signal:
+        scores["route_scheduling"] += 2
+    if "pasan" in tokens and has_sample_signal:
+        scores["route_scheduling"] += 2
+    if "vet" in tokens and has_route_action_signal and not price_signal:
+        scores["route_scheduling"] += 1
 
     ranking = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     best_area, best_score = ranking[0]
@@ -919,7 +1241,6 @@ def is_price_or_services_inquiry(text: str) -> bool:
         "cuanto salen",
         "sale",
         "salen",
-        "que puedo hacer",
         "que servicios",
         "servicios tienen",
         "tipo de analisis",
@@ -956,6 +1277,115 @@ def is_price_or_services_inquiry(text: str) -> bool:
     return False
 
 
+def normalized_word_tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", normalize_lookup_key(text))
+
+
+def contains_normalized_hint(normalized: str, tokens: list[str], hint: str) -> bool:
+    normalized_hint = normalize_lookup_key(hint)
+    if not normalized_hint:
+        return False
+    if " " in normalized_hint:
+        return normalized_hint in normalized
+
+    for token in tokens:
+        if token == normalized_hint:
+            return True
+        if len(normalized_hint) >= 6 and token.startswith(normalized_hint):
+            return True
+    return False
+
+
+def is_route_operational_request(text: str) -> bool:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return False
+
+    if is_price_or_services_inquiry(text):
+        explicit_route_markers = (
+            "programar",
+            "agendar",
+            "retiro",
+            "recoger",
+            "recoleccion",
+            "ruta",
+            "mensajero",
+            "motorizado",
+        )
+        if not any(marker in normalized for marker in explicit_route_markers):
+            sample_markers = ("orina", "copro", "heces", "lamina", "citologia", "coombs", "creatinina")
+            if any(marker in normalized for marker in sample_markers):
+                return False
+
+    route_patterns = (
+        "programar recogida",
+        "programar recoleccion",
+        "agendar retiro",
+        "programacion de ruta",
+        "recoger muestra",
+        "retiro de muestra",
+        "enviar muestra",
+        "enviar muestras",
+        "mandar a analizar una muestra",
+        "mandar una prueba a analizar",
+        "mandar examen a analizar",
+        "enviar un examen al laboratorio",
+        "enviar examen al laboratorio",
+        "me recogen unos examenes",
+        "remitir examenes",
+        "tengo tubos y laminas para procesamiento",
+        "tengo cosas para laboratorio",
+        "procesar un panel diagnostico",
+        "procesar panel diagnostico",
+        "procesar muestra",
+        "ruta",
+    )
+    return any(pattern in normalized for pattern in route_patterns)
+
+
+def is_catalog_inquiry(text: str) -> bool:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return False
+
+    if is_route_operational_request(text):
+        return False
+
+    tokens = normalized_word_tokens(text)
+
+    if is_price_or_services_inquiry(text):
+        return True
+
+    if infer_requested_sample_groups(text) or infer_requested_clinical_groups(text):
+        return True
+
+    broad_tokens = (
+        "analisis",
+        "examen",
+        "examenes",
+        "prueba",
+        "pruebas",
+        "perfil",
+        "panel",
+        "citologia",
+        "copro",
+        "coprolog",
+        "coproscop",
+        "orina",
+        "urin",
+        "sangre",
+        "heces",
+        "lamina",
+        "laminas",
+        "paf",
+        "urocultivo",
+        "coombs",
+        "creatinina",
+        "hemograma",
+    )
+    return any(contains_normalized_hint(normalized, tokens, hint) for hint in broad_tokens)
+
+
 def format_price_cop(value: Any) -> str:
     try:
         amount = int(float(str(value)))
@@ -983,6 +1413,251 @@ def format_turnaround_for_reply(row: dict[str, Any]) -> str:
         days = hours // 24
         return f"{days} dia(s)"
     return f"{hours} hora(s)"
+
+
+def format_route_pickup_date_label(date_iso: str | None) -> str:
+    if not date_iso:
+        return ""
+
+    try:
+        pickup_date = datetime.fromisoformat(str(date_iso))
+    except ValueError:
+        return ""
+
+    weekdays = [
+        "lunes",
+        "martes",
+        "miercoles",
+        "jueves",
+        "viernes",
+        "sabado",
+        "domingo",
+    ]
+    months = [
+        "enero",
+        "febrero",
+        "marzo",
+        "abril",
+        "mayo",
+        "junio",
+        "julio",
+        "agosto",
+        "septiembre",
+        "octubre",
+        "noviembre",
+        "diciembre",
+    ]
+    weekday = weekdays[pickup_date.weekday()]
+    month = months[pickup_date.month - 1]
+    return f"{weekday} {pickup_date.day} de {month} de {pickup_date.year}"
+
+
+def catalog_blob_with_context(row: dict[str, Any]) -> str:
+    return normalize_lookup_key(
+        " ".join(
+            [
+                str(row.get("test_name") or ""),
+                str(row.get("category") or ""),
+                str(row.get("subcategory") or ""),
+                str(row.get("sample_type") or ""),
+            ]
+        )
+    )
+
+
+def infer_catalog_sample_group(row: dict[str, Any]) -> str:
+    blob = catalog_blob_with_context(row)
+    if not blob:
+        return "no especificado"
+
+    for group, hints in CATALOG_SAMPLE_GROUP_HINTS.items():
+        if any(hint in blob for hint in hints):
+            return group
+
+    return "no especificado"
+
+
+def infer_catalog_clinical_group(row: dict[str, Any]) -> str:
+    blob = catalog_blob_with_context(row)
+    if not blob:
+        return "otros analisis"
+
+    for group, hints in CATALOG_CLINICAL_GROUP_RULES:
+        if any(hint in blob for hint in hints):
+            return group
+
+    return "otros analisis"
+
+
+def infer_catalog_collection_note(row: dict[str, Any]) -> str:
+    blob = catalog_blob_with_context(row)
+    if not blob:
+        return ""
+
+    if "orina" in blob and "esteril" in blob:
+        return "orina fresca y esteril"
+    if "orina" in blob:
+        return "orina fresca"
+    if "materia fecal" in blob:
+        return "materia fecal fresca"
+    if "lamina" in blob and "enviar" in blob:
+        return "laminas para evaluacion citologica"
+    if "lamina" in blob:
+        return "laminas citologicas"
+    if "piel" in blob and "pelo" in blob:
+        return "muestra de piel y pelos"
+    if "tapa morada" in blob and "tapa roja" in blob:
+        return "sangre en tubo tapa morada y tapa roja"
+    if "tapa azul" in blob:
+        return "sangre en tubo tapa azul"
+    if "tapa morada" in blob:
+        return "sangre en tubo tapa morada"
+    if "tapa roja" in blob or "tubo rojo" in blob:
+        return "sangre en tubo tapa roja"
+    if "tapa lila" in blob:
+        return "sangre en tubo tapa lila"
+    if "suero" in blob:
+        return "suero"
+    if "sangre" in blob or "tubo" in blob:
+        return "muestra sanguinea"
+    if "cultivo" in blob:
+        return "muestra segun sitio de infeccion y medio adecuado"
+
+    explicit_sample_type = str(row.get("sample_type") or "").strip()
+    if explicit_sample_type:
+        return explicit_sample_type
+
+    return ""
+
+
+def detect_catalog_audience(text: str) -> str:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return "general"
+
+    if any(token in normalized for token in PROFESSIONAL_AUDIENCE_TOKENS):
+        return "profesional"
+    return "general"
+
+
+def infer_requested_sample_groups(text: str) -> set[str]:
+    normalized = normalize_lookup_key(text)
+    tokens = normalized_word_tokens(text)
+    requested: set[str] = set()
+    for group, hints in CATALOG_SAMPLE_GROUP_HINTS.items():
+        if any(contains_normalized_hint(normalized, tokens, hint) for hint in hints):
+            requested.add(group)
+    return requested
+
+
+def infer_requested_clinical_groups(text: str) -> set[str]:
+    normalized = normalize_lookup_key(text)
+    tokens = normalized_word_tokens(text)
+    requested: set[str] = set()
+    for group, hints in CATALOG_CLINICAL_GROUP_RULES:
+        if any(contains_normalized_hint(normalized, tokens, hint) for hint in hints):
+            requested.add(group)
+    return requested
+
+
+def enrich_catalog_row(row: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(row)
+    enriched["clinical_group"] = infer_catalog_clinical_group(row)
+    enriched["sample_group"] = infer_catalog_sample_group(row)
+    enriched["collection_note"] = infer_catalog_collection_note(row)
+    return enriched
+
+
+def build_catalog_exam_reply(best: dict[str, Any], *, audience: str, wants_price: bool) -> str:
+    test_name = str(best.get("test_name") or "este analisis").strip()
+    code = str(best.get("test_code") or "").strip()
+    price_label = format_price_cop(best.get("price_cop"))
+    turnaround_label = format_turnaround_for_reply(best)
+    sample_group = str(best.get("sample_group") or "no especificado").strip()
+    collection_note = str(best.get("collection_note") or "").strip()
+    clinical_group = str(best.get("clinical_group") or "otros analisis").strip()
+
+    prefix = "Perfecto" if audience == "profesional" else "Claro"
+    exam_label = f"{test_name} (codigo {code})" if code else test_name
+    response_parts = [f"{prefix}, en nuestros servicios de laboratorio, para {exam_label} del grupo {clinical_group}"]
+
+    if sample_group != "no especificado":
+        response_parts.append(f"la muestra base es {sample_group}")
+    if collection_note:
+        response_parts.append(f"la toma recomendada es {collection_note}")
+    if price_label and wants_price:
+        response_parts.append(f"el valor referencial es {price_label}")
+    elif not wants_price and price_label:
+        response_parts.append(f"si lo necesitas, su valor referencial es {price_label}")
+    if turnaround_label:
+        response_parts.append(f"y el tiempo estimado es {turnaround_label}")
+
+    message = ", ".join(response_parts).strip() + "."
+    if audience == "profesional":
+        return f"{message} Si quieres, te paso alternativas del mismo grupo diagnostico."
+    return f"{message} Si deseas, te ayudo a elegir la opcion mas adecuada segun el caso."
+
+
+def build_catalog_group_reply(
+    catalog_rows: list[dict[str, Any]],
+    *,
+    requested_samples: set[str],
+    requested_clinical_groups: set[str],
+    audience: str,
+) -> str | None:
+    filtered = catalog_rows
+    if requested_samples:
+        filtered = [row for row in filtered if row.get("sample_group") in requested_samples]
+    if requested_clinical_groups:
+        filtered = [row for row in filtered if row.get("clinical_group") in requested_clinical_groups]
+
+    if not filtered:
+        return None
+
+    unique_names: list[str] = []
+    for row in filtered:
+        name = str(row.get("test_name") or "").strip()
+        if name and name not in unique_names:
+            unique_names.append(name)
+        if len(unique_names) >= 3:
+            break
+
+    price_values = [
+        int(value)
+        for value in [row.get("price_cop") for row in filtered]
+        if isinstance(value, int) and value > 0
+    ]
+    min_price = min(price_values) if price_values else None
+    max_price = max(price_values) if price_values else None
+    sample_label = ", ".join(sorted(requested_samples)) if requested_samples else "distintas muestras"
+
+    if requested_clinical_groups:
+        group_label = ", ".join(sorted(requested_clinical_groups))
+    else:
+        top_groups = Counter(str(row.get("clinical_group") or "otros analisis") for row in filtered)
+        group_label = ", ".join(group for group, _ in top_groups.most_common(2))
+
+    top_turnaround = Counter(str(row.get("subcategory") or "").strip() for row in filtered if str(row.get("subcategory") or "").strip())
+    turnaround_label = top_turnaround.most_common(1)[0][0] if top_turnaround else "segun el examen"
+
+    examples_label = " y ".join(unique_names[:2]) if unique_names else "varios examenes"
+    if min_price and max_price:
+        price_span = f"entre {format_price_cop(min_price)} y {format_price_cop(max_price)}"
+    else:
+        price_span = "con valores referenciales segun examen"
+
+    if audience == "profesional":
+        return (
+            f"Perfecto, manejamos servicios para {sample_label} con pruebas en {group_label}, {price_span}. "
+            f"Por ejemplo, {examples_label}, con tiempo estimado de referencia {turnaround_label}. "
+            "Si me indicas el objetivo clinico, te priorizo el panel mas util."
+        )
+
+    return (
+        f"Claro, manejamos servicios para {sample_label} y tenemos examenes de {group_label}, {price_span}. "
+        f"Por ejemplo, {examples_label}, con tiempo estimado de referencia {turnaround_label}. "
+        "Si me dices el examen exacto o codigo, te doy valor referencial y toma de muestra."
+    )
 
 
 def catalog_query_tokens(text: str) -> set[str]:
@@ -1054,9 +1729,12 @@ def build_catalog_guidance_reply(text: str) -> str | None:
     if not normalized:
         return None
 
-    inquiry_detected = is_price_or_services_inquiry(text) or any(
-        token in normalized for token in ("analisis", "examen", "prueba", "perfil", "panel")
-    )
+    requested_samples = infer_requested_sample_groups(text)
+    requested_clinical_groups = infer_requested_clinical_groups(text)
+
+    inquiry_detected = is_catalog_inquiry(text)
+    if requested_samples or requested_clinical_groups:
+        inquiry_detected = True
     if not inquiry_detected:
         return None
 
@@ -1070,7 +1748,7 @@ def build_catalog_guidance_reply(text: str) -> str | None:
         return None
 
     catalog_rows = [
-        row
+        enrich_catalog_row(row)
         for row in ensure_dict_rows(raw_catalog)
         if row and row.get("is_active") is not False
     ]
@@ -1081,6 +1759,7 @@ def build_catalog_guidance_reply(text: str) -> str | None:
         )
 
     ranked = rank_catalog_matches(text, catalog_rows)
+    audience = detect_catalog_audience(text)
     wants_price = any(
         token in normalized
         for token in (
@@ -1098,35 +1777,24 @@ def build_catalog_guidance_reply(text: str) -> str | None:
         )
     )
 
-    if ranked and ranked[0][0] >= 5:
+    if ranked and ranked[0][0] >= 3:
         best = ranked[0][1]
-        test_name = str(best.get("test_name") or "este analisis").strip()
-        code = str(best.get("test_code") or "").strip()
-        price_label = format_price_cop(best.get("price_cop"))
-        turnaround_label = format_turnaround_for_reply(best)
+        return build_catalog_exam_reply(best, audience=audience, wants_price=wants_price)
 
-        parts: list[str] = ["Claro, en nuestros servicios de laboratorio"]
-        if code:
-            parts.append(f"el examen {test_name} (codigo {code})")
-        else:
-            parts.append(f"el examen {test_name}")
-
-        if price_label:
-            parts.append(f"tiene un valor referencial de {price_label}")
-        else:
-            parts.append("esta disponible para cotizacion")
-
-        if turnaround_label:
-            parts.append(f"y un tiempo estimado de {turnaround_label}")
-
-        message = " ".join(parts).strip() + "."
-        if wants_price:
-            return f"{message} Si quieres, te comparto opciones similares o te ayudo a programar la recogida."
-        return f"{message} Si me indicas el examen puntual que necesitas, te doy el valor aproximado y el proceso."
+    grouped_reply = build_catalog_group_reply(
+        catalog_rows,
+        requested_samples=requested_samples,
+        requested_clinical_groups=requested_clinical_groups,
+        audience=audience,
+    )
+    if grouped_reply:
+        if wants_price and not requested_samples and not requested_clinical_groups:
+            return f"{grouped_reply} Si buscas un precio puntual, comparteme el nombre exacto o el codigo del examen."
+        return grouped_reply
 
     category_counter: Counter[str] = Counter()
     for row in catalog_rows:
-        category = str(row.get("category") or "").strip()
+        category = str(row.get("clinical_group") or "otros analisis").strip()
         if category:
             category_counter[category] += 1
 
@@ -1150,7 +1818,7 @@ def build_catalog_guidance_reply(text: str) -> str | None:
         sample_label = " y ".join(suggestions[:2])
         return (
             f"Claro, manejamos servicios como {category_label}. "
-            f"Por ejemplo, {sample_label}. Si me dices el examen exacto o codigo, te comparto valor referencial en COP y tiempo estimado."
+            f"Por ejemplo, {sample_label}. Si me dices el examen exacto o el tipo de muestra, te comparto valor referencial, toma de muestra y tiempo estimado."
         )
 
     return (
@@ -1173,6 +1841,30 @@ def parse_clinic_and_address_from_text(text: str) -> tuple[str | None, str | Non
     if not raw:
         return None, None
 
+    clinic_candidate: str | None = None
+    address_candidate: str | None = None
+
+    clinic_match = re.search(
+        r"(?:veterinaria|clinica)\s*(?:es|:)?\s*([A-Za-z0-9ÁÉÍÓÚáéíóúÑñ .'-]{3,}?)(?=(?:\s+y\s+la\s+direcci[oó]n|\s*,|$))",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if clinic_match:
+        clinic_candidate = clinic_match.group(1).strip(" .,-")
+
+    address_match = re.search(
+        r"(?:direccion|dirección)\s*(?:de retiro|de recogida|es|:)?\s*([A-Za-z0-9ÁÉÍÓÚáéíóúÑñ# .,'-]{6,})",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if address_match:
+        address_candidate = address_match.group(1).strip(" .,-")
+        if isinstance(address_candidate, str) and address_candidate.lower().startswith("es "):
+            address_candidate = address_candidate[3:].strip()
+
+    if clinic_candidate or address_candidate:
+        return clinic_candidate or None, address_candidate or None
+
     parts = [part.strip() for part in raw.split(",") if part.strip()]
     if len(parts) >= 2:
         clinic_candidate = parts[0]
@@ -1184,6 +1876,72 @@ def parse_clinic_and_address_from_text(text: str) -> tuple[str | None, str | Non
         return None, raw
 
     return raw, None
+
+
+def detect_route_priority(text: str, captured_fields: dict[str, Any]) -> str:
+    existing = str(captured_fields.get("priority") or "").strip().lower()
+    if existing in {"urgent", "normal"}:
+        return existing
+
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return "normal"
+
+    urgent_tokens = (
+        "urgente",
+        "prioridad alta",
+        "lo antes posible",
+        "ya mismo",
+        "inmediato",
+        "hoy mismo",
+        "asap",
+    )
+    if any(token in normalized for token in urgent_tokens):
+        return "urgent"
+
+    return "normal"
+
+
+def detect_route_time_window(text: str, captured_fields: dict[str, Any]) -> str | None:
+    existing = str(captured_fields.get("pickup_time_window") or "").strip()
+    if existing:
+        return existing
+
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return None
+
+    between_hours = re.search(
+        r"entre\s+las?\s*(\d{1,2})(?::(\d{2}))?\s*(?:am|pm)?\s+y\s+las?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?",
+        normalized,
+    )
+    if between_hours:
+        start_hour = between_hours.group(1)
+        start_min = between_hours.group(2) or "00"
+        end_hour = between_hours.group(3)
+        end_min = between_hours.group(4) or "00"
+        meridiem = between_hours.group(5) or ""
+        suffix = f" {meridiem}" if meridiem else ""
+        return f"entre {start_hour}:{start_min} y {end_hour}:{end_min}{suffix}".strip()
+
+    colloquial_ranges = (
+        ("manana", "jornada de manana"),
+        ("tarde", "jornada de la tarde"),
+        ("noche", "jornada de la noche"),
+    )
+    for token, label in colloquial_ranges:
+        if token in normalized:
+            return label
+
+    after_hour = re.search(r"despues\s+de\s+las?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", normalized)
+    if after_hour:
+        hour = after_hour.group(1)
+        minute = after_hour.group(2) or "00"
+        meridiem = after_hour.group(3) or ""
+        suffix = f" {meridiem}" if meridiem else ""
+        return f"despues de las {hour}:{minute}{suffix}".strip()
+
+    return None
 
 def extract_phone(text: str) -> str | None:
     match = re.search(r"(\+?\d{10,15})", text)
@@ -1562,7 +2320,7 @@ def submit_route_mock_record(
         "request_id": request_id,
         "client_id": resolved_client_id,
         "assigned_courier_id": courier_data.get("id") if isinstance(courier_data, dict) else None,
-        "priority": "normal",
+        "priority": str(captured_fields.get("priority") or "normal"),
     }
     assignment = assign_courier(assignment_payload)
 
@@ -2175,6 +2933,53 @@ def build_resume_question(missing_fields: list[str]) -> str:
     return f"Para continuar, me confirmas {first_field}?"
 
 
+def is_low_information_reply(reply: str) -> bool:
+    normalized = normalize_lookup_key(reply)
+    if not normalized:
+        return True
+    generic_patterns = (
+        "entiendo te ayudo con gusto",
+        "gracias te ayudo con eso",
+        "perfecto te ayudo con eso",
+        "claro te ayudo con eso",
+    )
+    return len(normalized) < 45 or any(pattern in normalized for pattern in generic_patterns)
+
+
+def enforce_service_area_reply_quality(
+    *,
+    service_area: str,
+    reply: str,
+    missing_fields: list[str],
+) -> str:
+    if not is_low_information_reply(reply):
+        return reply
+
+    if service_area == "results":
+        return (
+            "Perfecto, te ayudo con resultados. Para darte el estado puntual, "
+            "comparteme numero de muestra, numero de orden o nombre de la mascota."
+        )
+    if service_area == "accounting":
+        resume_prompt = build_resume_question(missing_fields)
+        if resume_prompt:
+            return f"Perfecto, te ayudo con contabilidad. {resume_prompt}"
+        return (
+            "Perfecto, te ayudo con contabilidad. Para revisarlo rapido, "
+            "comparteme NIF y si tienes numero de factura o periodo de cobro."
+        )
+    if service_area == "new_client":
+        return NEW_CLIENT_REGISTRATION_MESSAGE
+    if service_area == "route_scheduling" and missing_fields:
+        resume_prompt = build_resume_question(missing_fields)
+        if resume_prompt:
+            return (
+                "Perfecto, te apoyo con la programacion de ruta. "
+                f"{resume_prompt}"
+            )
+    return reply
+
+
 def should_prompt_intent_clarification(
     *,
     session: dict[str, Any] | None,
@@ -2289,10 +3094,15 @@ def apply_route_conversation_guard(
 ) -> tuple[str, str, str, str, list[str], dict[str, Any]]:
     clinic_name = (captured_fields.get("clinic_name") or (client or {}).get("clinic_name") or "").strip()
     pickup_address = (captured_fields.get("pickup_address") or (client or {}).get("address") or "").strip()
+    pickup_time_window = str(captured_fields.get("pickup_time_window") or "").strip()
     if clinic_name:
         captured_fields["clinic_name"] = clinic_name
     if pickup_address:
         captured_fields["pickup_address"] = pickup_address
+    detected_time_window = detect_route_time_window(text, captured_fields)
+    if detected_time_window:
+        captured_fields["pickup_time_window"] = detected_time_window
+        pickup_time_window = detected_time_window
 
     last_action = (session or {}).get("next_action") or ""
     last_status = (session or {}).get("status") or ""
@@ -2358,6 +3168,8 @@ def apply_route_conversation_guard(
             captured_fields["clinic_name"] = clinic_from_text
         if address_from_text:
             captured_fields["pickup_address"] = address_from_text
+        if not pickup_time_window:
+            pickup_time_window = str(captured_fields.get("pickup_time_window") or "").strip()
 
         if captured_fields.get("pickup_address"):
             return (
@@ -2399,6 +3211,7 @@ def apply_route_conversation_guard(
 
 
 def handle_telegram_message(chat_id: int, text: str) -> None:
+    ensure_openai_warmup()
     phone = extract_phone(text)
     client = supabase.get_client_by_phone(phone) if phone else None
     if not client:
@@ -2506,30 +3319,23 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     except httpx.HTTPStatusError:
         print(f"[telegram] message_history_unavailable chat_id={chat_id}")
 
-    try:
-        turn = openai_service.generate_turn(
-            system_prompt=SYSTEM_PROMPT,
-            user_message=text,
-            state=ai_state,
-        )
-    except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
-        print(f"[telegram] openai_fallback reason={type(exc).__name__} chat_id={chat_id}")
-        turn = {
-            "intent": "no_clasificado",
-            "service_area": "unknown",
-            "phase_current": "fase_1_clasificacion",
-            "phase_next": "fase_2_recogida_datos",
-            "status": "in_progress",
-            "missing_fields": [],
-            "captured_fields": ai_state.get("captured_fields") or {},
-            "requires_handoff": False,
-            "handoff_area": "none",
-            "next_action": "continuar_conversacion",
-            "message_mode": "flow_progress",
-            "resume_prompt": "",
-            "confidence": 0.35,
-            "reply": "Gracias, te ayudo con eso.",
-        }
+    if openai_service is None:
+        turn = build_openai_fallback_turn(ai_state)
+    elif openai_circuit_active():
+        print(f"[telegram] openai_circuit_active chat_id={chat_id}")
+        turn = build_openai_fallback_turn(ai_state)
+    else:
+        try:
+            turn = openai_service.generate_turn(
+                system_prompt=SYSTEM_PROMPT,
+                user_message=text,
+                state=ai_state,
+            )
+            register_openai_success()
+        except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+            register_openai_failure()
+            print(f"[telegram] openai_fallback reason={type(exc).__name__} chat_id={chat_id}")
+            turn = build_openai_fallback_turn(ai_state)
 
     intent = turn.get("intent", "no_clasificado")
     if intent not in VALID_INTENTS:
@@ -2660,6 +3466,11 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
 
     missing_fields = [str(item) for item in missing_fields if item is not None]
     missing_fields = prune_missing_fields_with_captured(missing_fields, captured_fields)
+    reply = enforce_service_area_reply_quality(
+        service_area=service_area,
+        reply=reply,
+        missing_fields=missing_fields,
+    )
     intent_changed = bool(session and intent != session_intent)
 
     if session and intent_changed and message_mode != "intent_switch":
@@ -2701,7 +3512,8 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     if (
         not is_first_turn
         and service_area == "results"
-        and (is_price_or_services_inquiry(text) or is_help_inquiry(text))
+        and session_service_area == "results"
+        and (is_catalog_inquiry(text) or is_help_inquiry(text))
         and not extract_results_reference(text)
     ):
         intent = "no_clasificado"
@@ -2833,7 +3645,8 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     if (
         catalog_guidance_reply
         and special_menu_option is None
-        and (is_price_or_services_inquiry(text) or is_help_inquiry(text))
+        and service_area == "unknown"
+        and (is_catalog_inquiry(text) or is_help_inquiry(text))
         and not is_greeting_only(text)
     ):
         intent = "no_clasificado"
@@ -2888,7 +3701,11 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             attempts = int(captured_fields.get("route_identification_attempts", 0) or 0) + 1
             captured_fields["route_identification_attempts"] = attempts
 
-            if is_price_or_services_inquiry(text) or is_help_inquiry(text):
+            if (
+                is_catalog_inquiry(text)
+                and not is_route_operational_request(text)
+                and detect_explicit_service_area(text) != "route_scheduling"
+            ) or is_help_inquiry(text):
                 service_area = "unknown"
                 intent = "no_clasificado"
                 phase_current = "fase_1_clasificacion"
@@ -2963,7 +3780,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 resume_prompt = ""
                 reply = PQRS_MESSAGE
                 follow_up_message = INTENT_CLARIFICATION_MESSAGE
-            elif is_price_or_services_inquiry(text) or is_help_inquiry(text):
+            elif is_catalog_inquiry(text) or is_help_inquiry(text):
                 intent = "no_clasificado"
                 service_area = "unknown"
                 phase_current = "fase_1_clasificacion"
@@ -3027,22 +3844,26 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             if next_action == "confirmar_direccion_retiro":
                 clinic_label = captured_fields.get("clinic_name") or "tu veterinaria"
                 address_label = captured_fields.get("pickup_address") or "la direccion registrada"
+                time_window_label = str(captured_fields.get("pickup_time_window") or "").strip()
+                time_window_suffix = f" en franja {time_window_label}" if time_window_label else ""
                 reply = (
                     "Perfecto, te ayudo con la programacion de ruta para retirar la muestra. "
-                    f"¿Confirmas que el retiro es para {clinic_label} en {address_label}?"
+                    f"¿Confirmas que el retiro es para {clinic_label} en {address_label}{time_window_suffix}?"
                 )
             elif next_action == "solicitar_direccion_actualizada":
                 reply = "Perfecto, por favor comparteme la direccion actual para programar el retiro."
             elif next_action == "confirmar_programacion_ruta":
+                time_window_label = str(captured_fields.get("pickup_time_window") or "").strip()
+                time_window_note = f" Franja registrada: {time_window_label}." if time_window_label else ""
                 if (session or {}).get("next_action") == "solicitar_direccion_actualizada":
                     reply = (
                         "Listo, registre la nueva direccion de retiro y tu solicitud quedo programada. "
-                        "Te confirmaremos cualquier novedad por este medio."
+                        f"Te confirmaremos cualquier novedad por este medio.{time_window_note}"
                     )
                 else:
                     reply = (
                         "Listo, tu solicitud de retiro de muestra quedo programada. "
-                        "Te confirmaremos cualquier novedad por este medio."
+                        f"Te confirmaremos cualquier novedad por este medio.{time_window_note}"
                     )
             elif next_action == "continuar_conversacion":
                 reply = (
@@ -3064,9 +3885,11 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 else:
                     clinic_label = captured_fields.get("clinic_name") or "tu veterinaria"
                     address_label = captured_fields.get("pickup_address") or "la direccion registrada"
+                    time_window_label = str(captured_fields.get("pickup_time_window") or "").strip()
+                    time_window_suffix = f" en franja {time_window_label}" if time_window_label else ""
                     reply = (
                         "Perfecto, te ayudo con la programacion de ruta para retirar la muestra. "
-                        f"¿Confirmas que el retiro es para {clinic_label} en {address_label}?"
+                        f"¿Confirmas que el retiro es para {clinic_label} en {address_label}{time_window_suffix}?"
                     )
 
             resume_prompt = ""
@@ -3159,6 +3982,13 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     if phone and isinstance(captured_fields, dict) and "phone" not in captured_fields:
         captured_fields["phone"] = phone
 
+    request_priority = "normal"
+    if service_area == "route_scheduling":
+        request_priority = detect_route_priority(text, captured_fields)
+        captured_fields["priority"] = request_priority
+        if request_priority == "urgent" and "prioridad urgente" not in reply.lower():
+            reply = f"{reply} Lo marco con prioridad urgente para agilizar la recoleccion.".strip()
+
     scheduled_pickup_date = (
         calculate_schedule(datetime.now().isoformat(), settings.cutoff_time)[
             "scheduled_pickup_date"
@@ -3167,17 +3997,26 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         else None
     )
 
+    is_route_programmed_reply = "quedo programada" in reply.lower()
+    if service_area == "route_scheduling" and (
+        next_action == "confirmar_programacion_ruta" or is_route_programmed_reply
+    ):
+        pickup_date_label = format_route_pickup_date_label(scheduled_pickup_date)
+        if pickup_date_label and "retiro estimado" not in reply.lower():
+            reply = (
+                f"{reply} Super, ya quedo diligenciado y el retiro estimado es para {pickup_date_label}."
+            ).strip()
+
     request_ref = create_base_request(
         client_id=client_id,
         service_area=service_area,
         intent=intent,
-        priority="normal",
+        priority=request_priority,
         pickup_address=None,
         scheduled_pickup_date=scheduled_pickup_date,
     )
 
     automation_note = ""
-    is_route_programmed_reply = "quedo programada" in reply.lower()
     if service_area == "route_scheduling" and (
         next_action == "confirmar_programacion_ruta" or is_route_programmed_reply
     ):

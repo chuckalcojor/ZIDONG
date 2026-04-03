@@ -16,7 +16,7 @@ class OpenAIService:
         *,
         fallback_model: str | None = None,
         enable_fallback: bool = True,
-        max_retries: int = 1,
+        max_retries: int = 0,
     ) -> None:
         self.model = model
         self.fallback_model = (fallback_model or "").strip() or None
@@ -26,6 +26,19 @@ class OpenAIService:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+
+    def quick_health_check(self, *, timeout: int = 4) -> bool:
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.get(
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": self.headers["Authorization"]},
+                    params={"limit": 1},
+                )
+                response.raise_for_status()
+            return True
+        except httpx.HTTPError:
+            return False
 
     def _safe_json_loads(self, raw_text: str) -> dict[str, Any]:
         text = (raw_text or "").strip()
@@ -289,7 +302,7 @@ class OpenAIService:
         for model_name in self._candidate_models():
             payload = {**payload_template, "model": model_name}
             try:
-                body = self._post_responses(payload, timeout=45)
+                body = self._post_responses(payload, timeout=14)
                 parsed = self._extract_output_json(body)
                 if isinstance(parsed, dict):
                     return parsed
@@ -370,7 +383,7 @@ class OpenAIService:
         for model_name in self._candidate_models():
             payload = {**payload_template, "model": model_name}
             try:
-                body = self._post_responses(payload, timeout=20)
+                body = self._post_responses(payload, timeout=8)
                 parsed = self._extract_output_json(body)
                 return str(parsed.get("service_area") or "unknown")
             except (httpx.HTTPError, ValueError, json.JSONDecodeError):

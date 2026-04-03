@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 import sys
@@ -40,6 +41,58 @@ def parse_turnaround_hours(text: str | None) -> int | None:
     return None
 
 
+def infer_sample_type_from_name(name: str) -> str | None:
+    normalized = (name or "").lower()
+    normalized = normalized.translate(
+        str.maketrans(
+            {
+                "á": "a",
+                "é": "e",
+                "í": "i",
+                "ó": "o",
+                "ú": "u",
+                "ñ": "n",
+            }
+        )
+    )
+
+    if "orina" in normalized:
+        return "orina"
+    if "materia fecal" in normalized or "copro" in normalized:
+        return "materia fecal"
+    if "lamina" in normalized or "citologia" in normalized or "paf" in normalized:
+        return "laminas/citologia"
+    if "piel" in normalized and "pelo" in normalized:
+        return "piel y pelos"
+    if "cultivo" in normalized:
+        return "cultivo microbiologico"
+    if "tubo" in normalized or "suero" in normalized or "sangre" in normalized:
+        return "sangre"
+    return None
+
+
+def resolve_catalog_pdf_path() -> Path:
+    override = (os.getenv("CATALOG_PDF_PATH") or "").strip()
+    if override:
+        candidate = Path(override).expanduser()
+        if candidate.exists():
+            return candidate
+
+    repo_root = Path(__file__).resolve().parents[3]
+    info_dir = repo_root / "Informacion"
+    preferred = info_dir / "A3 - Catalogo 2025 (3) (4).pdf"
+    if preferred.exists():
+        return preferred
+
+    for candidate in sorted(info_dir.glob("A3 - Catalogo*.pdf")):
+        if candidate.is_file():
+            return candidate
+
+    raise FileNotFoundError(
+        "No se encontro el PDF del catalogo. Define CATALOG_PDF_PATH o ubicalo en Informacion/."
+    )
+
+
 def is_category_line(line: str) -> bool:
     raw = line.strip()
     if not raw:
@@ -53,9 +106,7 @@ def is_category_line(line: str) -> bool:
 
 def main() -> None:
     load_dotenv()
-    pdf_path = Path(
-        r"C:\Users\Artel\Downloads\LABERIT A3 VETERINARIA\Informacion\A3 - Catalogo 2025 (3) (4).pdf"
-    )
+    pdf_path = resolve_catalog_pdf_path()
 
     reader = PdfReader(str(pdf_path))
     current_category = "SIN_CATEGORIA"
@@ -91,7 +142,7 @@ def main() -> None:
                     "test_name": name,
                     "category": current_category,
                     "subcategory": current_turnaround_text,
-                    "sample_type": None,
+                    "sample_type": infer_sample_type_from_name(name),
                     "turnaround_hours": current_turnaround,
                     "price_cop": price,
                     "source": "catalog_pdf",
