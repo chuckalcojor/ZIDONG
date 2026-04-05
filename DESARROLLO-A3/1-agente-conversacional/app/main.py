@@ -3319,10 +3319,13 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     except httpx.HTTPStatusError:
         print(f"[telegram] message_history_unavailable chat_id={chat_id}")
 
+    used_openai_fallback = False
     if openai_service is None:
+        used_openai_fallback = True
         turn = build_openai_fallback_turn(ai_state)
     elif openai_circuit_active():
         print(f"[telegram] openai_circuit_active chat_id={chat_id}")
+        used_openai_fallback = True
         turn = build_openai_fallback_turn(ai_state)
     else:
         try:
@@ -3335,6 +3338,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
             register_openai_failure()
             print(f"[telegram] openai_fallback reason={type(exc).__name__} chat_id={chat_id}")
+            used_openai_fallback = True
             turn = build_openai_fallback_turn(ai_state)
 
     intent = turn.get("intent", "no_clasificado")
@@ -3355,7 +3359,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         explicit_area = "results"
     if pending_route_identifier and explicit_area == "new_client" and not user_declares_not_registered(text):
         explicit_area = "route_scheduling"
-    if not explicit_area and len(normalize_lookup_key(text)) >= 8:
+    if not explicit_area and len(normalize_lookup_key(text)) >= 8 and not used_openai_fallback:
         semantic_area = detect_semantic_service_area_hint(text)
         if pending_route_identifier and semantic_area == "new_client" and not user_declares_not_registered(text):
             semantic_area = None
@@ -3443,7 +3447,9 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         reply = OTHER_QUERIES_MESSAGE
 
     if service_area == "unknown" and special_menu_option is None:
-        recovery_area = detect_explicit_service_area(text) or detect_semantic_service_area_hint(text)
+        recovery_area = detect_explicit_service_area(text)
+        if not recovery_area and not used_openai_fallback:
+            recovery_area = detect_semantic_service_area_hint(text)
         if recovery_area in {"route_scheduling", "results", "accounting", "new_client"}:
             service_area = recovery_area
             intent = {

@@ -790,6 +790,42 @@ class ConversationFlowTests(unittest.TestCase):
         self.assertIn("hematologia", sent)
         self.assertIn("codigo", sent)
 
+    def test_catalog_question_keeps_unknown_when_openai_turn_fails(self) -> None:
+        class FailingSemanticOpenAI:
+            model = "failing-semantic-openai"
+
+            def __init__(self) -> None:
+                self.classify_calls = 0
+
+            def generate_turn(self, system_prompt: str, user_message: str, state: dict):
+                _ = (system_prompt, user_message, state)
+                raise ValueError("invalid openai payload")
+
+            def classify_service_area(self, *, user_message: str):
+                _ = user_message
+                self.classify_calls += 1
+                return "results"
+
+        main.register_openai_success()
+        self._seed_catalog()
+        self.fake_supabase.sessions["1411"] = make_session(1411)
+        failing_openai = FailingSemanticOpenAI()
+        main.openai_service = failing_openai
+
+        try:
+            main.handle_telegram_message(1411, "quiero consultarte sobre que analisis realizan primeramente")
+        finally:
+            main.register_openai_success()
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        stored = self.fake_supabase.sessions["1411"]
+
+        self.assertIn("servicios", sent)
+        self.assertNotIn("gracias, te ayudo con eso", sent)
+        self.assertEqual(stored["service_area"], "unknown")
+        self.assertEqual(stored["next_action"], "atender_otra_consulta")
+        self.assertEqual(failing_openai.classify_calls, 0)
+
     def test_catalog_unknown_exam_asks_for_specific_name_or_code(self) -> None:
         self._seed_catalog()
         self.fake_supabase.sessions["142"] = make_session(142)
