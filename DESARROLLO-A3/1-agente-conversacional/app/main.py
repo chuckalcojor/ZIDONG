@@ -55,8 +55,8 @@ openai_service = (
 )
 OPENAI_FAILURE_STREAK = 0
 OPENAI_CIRCUIT_UNTIL = 0.0
-OPENAI_CIRCUIT_THRESHOLD = 2
-OPENAI_CIRCUIT_SECONDS = 300
+OPENAI_CIRCUIT_THRESHOLD = 3
+OPENAI_CIRCUIT_SECONDS = 120
 OPENAI_WARMUP_DONE = False
 
 FLOW_STAGES: list[tuple[str, str]] = [
@@ -140,9 +140,7 @@ def ensure_openai_warmup() -> None:
         print("[telegram] openai_warmup_ok")
         return
 
-    register_openai_failure()
-    register_openai_failure()
-    print("[telegram] openai_warmup_failed circuit_opened")
+    print("[telegram] openai_warmup_failed continuing_without_circuit")
 VALID_NEXT_ACTIONS = {
     "continuar_conversacion",
     "solicitar_clasificacion",
@@ -2977,6 +2975,11 @@ def enforce_service_area_reply_quality(
                 "Perfecto, te apoyo con la programacion de ruta. "
                 f"{resume_prompt}"
             )
+    if service_area == "unknown":
+        resume_prompt = build_resume_question(missing_fields)
+        if resume_prompt:
+            return f"Para ayudarte mejor, {resume_prompt}"
+        return INTENT_CLARIFICATION_MESSAGE
     return reply
 
 
@@ -3320,12 +3323,15 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         print(f"[telegram] message_history_unavailable chat_id={chat_id}")
 
     used_openai_fallback = False
+    openai_fallback_reason: str | None = None
     if openai_service is None:
         used_openai_fallback = True
+        openai_fallback_reason = "service_unavailable"
         turn = build_openai_fallback_turn(ai_state)
     elif openai_circuit_active():
         print(f"[telegram] openai_circuit_active chat_id={chat_id}")
         used_openai_fallback = True
+        openai_fallback_reason = "circuit_open"
         turn = build_openai_fallback_turn(ai_state)
     else:
         try:
@@ -3339,6 +3345,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             register_openai_failure()
             print(f"[telegram] openai_fallback reason={type(exc).__name__} chat_id={chat_id}")
             used_openai_fallback = True
+            openai_fallback_reason = f"generation_error_{type(exc).__name__}"
             turn = build_openai_fallback_turn(ai_state)
 
     intent = turn.get("intent", "no_clasificado")
@@ -3469,6 +3476,13 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         captured_fields = {}
 
     captured_fields = merge_captured_fields(ai_state.get("captured_fields"), captured_fields)
+    pickup_time_window = str(captured_fields.get("pickup_time_window") or "").strip()
+    legacy_time_window = str(captured_fields.get("time_window") or "").strip()
+    if legacy_time_window and not pickup_time_window:
+        captured_fields["pickup_time_window"] = legacy_time_window
+        pickup_time_window = legacy_time_window
+    if pickup_time_window and not legacy_time_window:
+        captured_fields["time_window"] = pickup_time_window
 
     missing_fields = [str(item) for item in missing_fields if item is not None]
     missing_fields = prune_missing_fields_with_captured(missing_fields, captured_fields)
@@ -3985,6 +3999,14 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     if phase_next not in FLOW_STAGE_ORDER:
         phase_next = next_phase_from_current(phase_current)
 
+    if isinstance(captured_fields, dict):
+        pickup_time_window = str(captured_fields.get("pickup_time_window") or "").strip()
+        legacy_time_window = str(captured_fields.get("time_window") or "").strip()
+        if pickup_time_window and not legacy_time_window:
+            captured_fields["time_window"] = pickup_time_window
+        elif legacy_time_window and not pickup_time_window:
+            captured_fields["pickup_time_window"] = legacy_time_window
+
     if phone and isinstance(captured_fields, dict) and "phone" not in captured_fields:
         captured_fields["phone"] = phone
 
@@ -4021,6 +4043,22 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         pickup_address=None,
         scheduled_pickup_date=scheduled_pickup_date,
     )
+
+    if used_openai_fallback and openai_fallback_reason:
+        try:
+            supabase.create_request_event(
+                request_id=request_ref["id"],
+                event_type="openai_generation_error",
+                event_payload={
+                    "reason": openai_fallback_reason,
+                    "fallback_used": True,
+                    "circuit_active": openai_circuit_active(),
+                    "model": getattr(openai_service, "model", None),
+                    "fallback_model": getattr(openai_service, "fallback_model", None),
+                },
+            )
+        except httpx.HTTPStatusError:
+            print(f"[telegram] openai_fallback_event_unavailable chat_id={chat_id}")
 
     automation_note = ""
     if service_area == "route_scheduling" and (

@@ -826,6 +826,118 @@ class ConversationFlowTests(unittest.TestCase):
         self.assertEqual(stored["next_action"], "atender_otra_consulta")
         self.assertEqual(failing_openai.classify_calls, 0)
 
+    def test_openai_fallback_registers_generation_error_event(self) -> None:
+        class FailingOpenAI:
+            model = "failing-openai"
+            fallback_model = "backup-model"
+
+            def generate_turn(self, system_prompt: str, user_message: str, state: dict):
+                _ = (system_prompt, user_message, state)
+                raise ValueError("invalid json payload")
+
+            def classify_service_area(self, *, user_message: str):
+                _ = user_message
+                return "unknown"
+
+        self.fake_supabase.sessions["1412"] = make_session(1412)
+        main.register_openai_success()
+        main.openai_service = FailingOpenAI()
+
+        try:
+            main.handle_telegram_message(1412, "necesito ayuda con resultados")
+        finally:
+            main.register_openai_success()
+
+        event_types = [row["event_type"] for row in self.fake_supabase.request_events]
+        self.assertIn("openai_generation_error", event_types)
+
+        fallback_events = [
+            row
+            for row in self.fake_supabase.request_events
+            if row.get("event_type") == "openai_generation_error"
+        ]
+        self.assertTrue(fallback_events)
+        payload = fallback_events[-1]["event_payload"]
+        self.assertIn("generation_error", payload.get("reason", ""))
+        self.assertTrue(payload.get("fallback_used"))
+
+    def test_route_time_window_alias_from_openai_is_mapped(self) -> None:
+        self.fake_supabase.sessions["1413"] = make_session(
+            1413,
+            client_id="client-1413",
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            phase_current="fase_2_recogida_datos",
+            phase_next="fase_3_validacion",
+            next_action="solicitar_cliente_y_direccion",
+            captured_fields={
+                "clinic_name": "Terra Pets",
+                "pickup_address": "Cra 12 # 34-56",
+            },
+        )
+        self.fake_supabase.clients.append(
+            {
+                "id": "client-1413",
+                "clinic_name": "Terra Pets",
+                "address": "Cra 12 # 34-56",
+                "phone": "+573001234567",
+                "tax_id": "900123456",
+            }
+        )
+        main.openai_service = FakeOpenAI(
+            lambda _msg, _state: make_turn(
+                intent="programacion_rutas",
+                service_area="route_scheduling",
+                phase_current="fase_2_recogida_datos",
+                phase_next="fase_3_validacion",
+                next_action="confirmar_direccion_retiro",
+                captured_fields={"time_window": "jornada de la tarde"},
+                reply="Perfecto, te ayudo con eso.",
+            )
+        )
+
+        main.handle_telegram_message(1413, "ok")
+
+        stored = self.fake_supabase.sessions["1413"]
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertEqual(stored["captured_fields"].get("pickup_time_window"), "jornada de la tarde")
+        self.assertEqual(stored["captured_fields"].get("time_window"), "jornada de la tarde")
+        self.assertIn("franja jornada de la tarde", sent)
+
+    def test_enforce_reply_quality_for_unknown_returns_menu(self) -> None:
+        response = main.enforce_service_area_reply_quality(
+            service_area="unknown",
+            reply="Gracias, te ayudo con eso.",
+            missing_fields=[],
+        )
+        self.assertEqual(response, main.INTENT_CLARIFICATION_MESSAGE)
+
+    def test_openai_warmup_failure_does_not_open_circuit(self) -> None:
+        class FailingHealthOpenAI:
+            def quick_health_check(self, *, timeout: int = 4) -> bool:
+                _ = timeout
+                return False
+
+        previous_warmup = main.OPENAI_WARMUP_DONE
+        previous_streak = main.OPENAI_FAILURE_STREAK
+        previous_until = main.OPENAI_CIRCUIT_UNTIL
+        previous_openai = main.openai_service
+
+        main.OPENAI_WARMUP_DONE = False
+        main.OPENAI_FAILURE_STREAK = 0
+        main.OPENAI_CIRCUIT_UNTIL = 0.0
+        main.openai_service = FailingHealthOpenAI()
+
+        try:
+            main.ensure_openai_warmup()
+            self.assertEqual(main.OPENAI_FAILURE_STREAK, 0)
+            self.assertFalse(main.openai_circuit_active())
+        finally:
+            main.OPENAI_WARMUP_DONE = previous_warmup
+            main.OPENAI_FAILURE_STREAK = previous_streak
+            main.OPENAI_CIRCUIT_UNTIL = previous_until
+            main.openai_service = previous_openai
+
     def test_catalog_unknown_exam_asks_for_specific_name_or_code(self) -> None:
         self._seed_catalog()
         self.fake_supabase.sessions["142"] = make_session(142)
