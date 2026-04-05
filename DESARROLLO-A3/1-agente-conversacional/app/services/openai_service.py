@@ -236,7 +236,7 @@ class OpenAIService:
                             },
                             "captured_fields": {
                                 "type": "object",
-                                "additionalProperties": False,
+                                "additionalProperties": True,
                                 "properties": {
                                     "phone": {"type": ["string", "null"]},
                                     "clinic_name": {"type": ["string", "null"]},
@@ -245,21 +245,12 @@ class OpenAIService:
                                     "order_reference": {"type": ["string", "null"]},
                                     "pickup_address": {"type": ["string", "null"]},
                                     "time_window": {"type": ["string", "null"]},
+                                    "pickup_time_window": {"type": ["string", "null"]},
                                     "priority": {
                                         "type": ["string", "null"],
                                         "enum": ["normal", "urgent", None],
                                     },
                                 },
-                                "required": [
-                                    "phone",
-                                    "clinic_name",
-                                    "pet_name",
-                                    "sample_reference",
-                                    "order_reference",
-                                    "pickup_address",
-                                    "time_window",
-                                    "priority",
-                                ],
                             },
                             "next_action": {"type": "string"},
                             "message_mode": {
