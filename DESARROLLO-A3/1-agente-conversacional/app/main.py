@@ -2067,7 +2067,13 @@ def extract_clinic_name_hint(text: str) -> str | None:
     anchored_patterns = (
         r"^\s*(?:si\s+)?(?:estoy\s+)?(?:registrad[oa]\s*,?\s*)?(.+?)\s+es\s+la\s+veterinaria\s*$",
         r"^\s*(.+?)\s+es\s+el\s+nombre(?:\s+fiscal)?\s*$",
-        r"^\s*(.+?)\s+es\s+mi\s+veterinaria\s*$",
+        r"^\s*(.+?)\s+es\s+mi\s+veterinaria\b.*$",
+        r"^\s*(?:si\s+)?(?:estoy\s+)?(?:registrad[oa]\s*,?\s*)?(.+?)\s+se\s+llama\s+mi\s+veterinaria\b.*$",
+        r"^\s*(?:perdon\w*\s+)?(?:me\s+equivoqu[eé]\s+)?se\s+llama\s+(.+?)\s*$",
+        r"^\s*(?:mi\s+)?veterinaria\s+se\s+llama\s+(.+?)\s*$",
+        r"^\s*(?:mi\s+)?clinica\s+se\s+llama\s+(.+?)\s*$",
+        r"^\s*(?:la\s+)?veterinaria\s+es\s+(.+?)\s*$",
+        r"^\s*(?:la\s+)?clinica\s+es\s+(.+?)\s*$",
     )
     for pattern in anchored_patterns:
         match = re.match(pattern, raw, flags=re.IGNORECASE)
