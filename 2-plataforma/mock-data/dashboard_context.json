@@ -1,0 +1,255 @@
+{
+  "summary": {
+    "total_clients": 62,
+    "clients_with_courier": 49,
+    "clients_without_courier": 13,
+    "active_requests": 37,
+    "pending_pickup": 11,
+    "in_analysis": 18,
+    "ready_results": 14,
+    "delivered_results": 29,
+    "open_conversations": 9,
+    "catalog_tests": 128,
+    "total_samples": 73,
+    "analysis_active_types": 22,
+    "pending_manual_approvals": 2
+  },
+  "funnel": [
+    {"label": "Solicitudes recibidas", "value": 46},
+    {"label": "Asignadas", "value": 34},
+    {"label": "En camino", "value": 21},
+    {"label": "En laboratorio", "value": 18},
+    {"label": "Procesadas", "value": 14},
+    {"label": "Resultados enviados", "value": 11}
+  ],
+  "top_couriers": [
+    {"name": "Andres Mejia", "clients": 14},
+    {"name": "Luisa Roman", "clients": 12},
+    {"name": "Camilo Diaz", "clients": 9}
+  ],
+  "top_zones": [
+    {"zone": "Norte", "clients": 17},
+    {"zone": "Occidente", "clients": 15},
+    {"zone": "Centro", "clients": 13}
+  ],
+  "top_service_areas": [
+    {"service_area": "route_scheduling", "count": 20},
+    {"service_area": "results", "count": 12},
+    {"service_area": "accounting", "count": 5}
+  ],
+  "request_status": {
+    "received": 16,
+    "assigned": 12,
+    "on_route": 9,
+    "in_lab": 7,
+    "processed": 6,
+    "sent": 5,
+    "cancelled": 3
+  },
+  "sample_status": {
+    "pending_pickup": 11,
+    "picked_up": 10,
+    "on_route": 7,
+    "received_lab": 6,
+    "in_analysis": 12,
+    "processed": 9,
+    "ready_results": 14,
+    "delivered_results": 29
+  },
+  "clients": [
+    {"id": "c001", "clinic_name": "Clinica Norte Vet", "phone": "3001112233"},
+    {"id": "c002", "clinic_name": "PetCare 24H", "phone": "3012223344"}
+  ],
+  "requests": [
+    {"id": "r001", "client_id": "c001", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "normal", "status": "received", "scheduled_pickup_date": "2026-04-09", "created_at": "2026-04-01T09:11:00", "updated_at": "2026-04-01T09:20:00", "clients": {"clinic_name": "Clinica Norte Vet"}, "couriers": {"name": "Andres Mejia"}},
+    {"id": "r002", "client_id": "c002", "service_area": "results", "intent": "resultados", "priority": "normal", "status": "assigned", "scheduled_pickup_date": "2026-04-09", "created_at": "2026-04-01T10:30:00", "updated_at": "2026-04-01T11:00:00", "clients": {"clinic_name": "PetCare 24H"}, "couriers": {"name": "Luisa Roman"}},
+    {"id": "r003", "client_id": "c003", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "urgent", "status": "on_route", "scheduled_pickup_date": "2026-04-09", "created_at": "2026-04-02T08:40:00", "updated_at": "2026-04-02T09:15:00", "clients": {"clinic_name": "Animal House"}, "couriers": {"name": "Camilo Diaz"}},
+    {"id": "r004", "client_id": "c004", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "normal", "status": "in_lab", "scheduled_pickup_date": "2026-04-10", "created_at": "2026-04-02T13:00:00", "updated_at": "2026-04-02T15:12:00", "clients": {"clinic_name": "Vet San Jorge"}, "couriers": {"name": "Andres Mejia"}},
+    {"id": "r005", "client_id": "c005", "service_area": "results", "intent": "resultados", "priority": "normal", "status": "processed", "scheduled_pickup_date": "2026-04-10", "created_at": "2026-04-03T07:55:00", "updated_at": "2026-04-03T16:23:00", "clients": {"clinic_name": "Clinica Vida Animal"}, "couriers": {"name": "Luisa Roman"}},
+    {"id": "r006", "client_id": "c006", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "normal", "status": "sent", "scheduled_pickup_date": "2026-04-11", "created_at": "2026-04-03T11:20:00", "updated_at": "2026-04-03T18:00:00", "clients": {"clinic_name": "Happy Pets"}, "couriers": {"name": "Camilo Diaz"}},
+    {"id": "r007", "client_id": "c007", "service_area": "accounting", "intent": "contabilidad", "priority": "normal", "status": "received", "scheduled_pickup_date": null, "created_at": "2026-04-04T09:30:00", "updated_at": "2026-04-04T10:10:00", "clients": {"clinic_name": "Santa Maria Vet"}, "couriers": {"name": null}},
+    {"id": "r008", "client_id": "c008", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "urgent", "status": "assigned", "scheduled_pickup_date": "2026-04-11", "created_at": "2026-04-04T12:00:00", "updated_at": "2026-04-04T12:47:00", "clients": {"clinic_name": "Caninos y Felinos"}, "couriers": {"name": "Andres Mejia"}},
+    {"id": "r009", "client_id": "c009", "service_area": "results", "intent": "resultados", "priority": "normal", "status": "cancelled", "scheduled_pickup_date": null, "created_at": "2026-04-05T08:12:00", "updated_at": "2026-04-05T08:58:00", "clients": {"clinic_name": "Vet Express"}, "couriers": {"name": null}},
+    {"id": "r010", "client_id": "c010", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "normal", "status": "received", "scheduled_pickup_date": "2026-04-12", "created_at": "2026-04-05T11:42:00", "updated_at": "2026-04-05T12:13:00", "clients": {"clinic_name": "Paw Center"}, "couriers": {"name": "Luisa Roman"}},
+    {"id": "r011", "client_id": "c011", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "normal", "status": "on_route", "scheduled_pickup_date": "2026-04-12", "created_at": "2026-04-06T08:05:00", "updated_at": "2026-04-06T09:00:00", "clients": {"clinic_name": "Agrovet Norte"}, "couriers": {"name": "Camilo Diaz"}},
+    {"id": "r012", "client_id": "c012", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "urgent", "status": "in_lab", "scheduled_pickup_date": "2026-04-12", "created_at": "2026-04-06T13:10:00", "updated_at": "2026-04-06T14:43:00", "clients": {"clinic_name": "Vet Cali"}, "couriers": {"name": "Andres Mejia"}},
+    {"id": "r013", "client_id": "c013", "service_area": "results", "intent": "resultados", "priority": "normal", "status": "processed", "scheduled_pickup_date": null, "created_at": "2026-04-06T15:00:00", "updated_at": "2026-04-06T16:01:00", "clients": {"clinic_name": "Mundo Animal"}, "couriers": {"name": "Luisa Roman"}},
+    {"id": "r014", "client_id": "c014", "service_area": "accounting", "intent": "contabilidad", "priority": "normal", "status": "assigned", "scheduled_pickup_date": null, "created_at": "2026-04-07T09:31:00", "updated_at": "2026-04-07T10:20:00", "clients": {"clinic_name": "Vet Plus"}, "couriers": {"name": "Camilo Diaz"}},
+    {"id": "r015", "client_id": "c015", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "normal", "status": "received", "scheduled_pickup_date": "2026-04-13", "created_at": "2026-04-07T12:18:00", "updated_at": "2026-04-07T12:45:00", "clients": {"clinic_name": "BioVet"}, "couriers": {"name": "Andres Mejia"}},
+    {"id": "r016", "client_id": "c016", "service_area": "results", "intent": "resultados", "priority": "normal", "status": "sent", "scheduled_pickup_date": null, "created_at": "2026-04-07T14:10:00", "updated_at": "2026-04-07T16:50:00", "clients": {"clinic_name": "Clinica Patitas"}, "couriers": {"name": "Luisa Roman"}},
+    {"id": "r017", "client_id": "c017", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "urgent", "status": "assigned", "scheduled_pickup_date": "2026-04-14", "created_at": "2026-04-08T07:55:00", "updated_at": "2026-04-08T08:35:00", "clients": {"clinic_name": "Pet House"}, "couriers": {"name": "Camilo Diaz"}},
+    {"id": "r018", "client_id": "c018", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "normal", "status": "received", "scheduled_pickup_date": "2026-04-14", "created_at": "2026-04-08T08:20:00", "updated_at": "2026-04-08T08:45:00", "clients": {"clinic_name": "Vet Salud"}, "couriers": {"name": null}},
+    {"id": "r019", "client_id": "c019", "service_area": "results", "intent": "resultados", "priority": "normal", "status": "cancelled", "scheduled_pickup_date": null, "created_at": "2026-04-08T09:00:00", "updated_at": "2026-04-08T09:20:00", "clients": {"clinic_name": "Clinica Animal Care"}, "couriers": {"name": null}},
+    {"id": "r020", "client_id": "c020", "service_area": "route_scheduling", "intent": "programacion_rutas", "priority": "normal", "status": "received", "scheduled_pickup_date": "2026-04-15", "created_at": "2026-04-08T10:10:00", "updated_at": "2026-04-08T10:30:00", "clients": {"clinic_name": "Vet Integral"}, "couriers": {"name": "Andres Mejia"}}
+  ],
+  "conversations": [
+    {"id": "lc1", "customer_name": "Clinica Norte Vet", "open_status": "open"},
+    {"id": "lc2", "customer_name": "PetCare 24H", "open_status": "open"}
+  ],
+  "messages": [
+    {"id": "m001", "created_at": "2026-03-10T09:00:00", "message_text": "Hola"},
+    {"id": "m002", "created_at": "2026-03-11T09:00:00", "message_text": "Estado"},
+    {"id": "m003", "created_at": "2026-03-12T09:00:00", "message_text": "Resultado"},
+    {"id": "m004", "created_at": "2026-03-13T09:00:00", "message_text": "Ruta"},
+    {"id": "m005", "created_at": "2026-03-14T09:00:00", "message_text": "Consulta"},
+    {"id": "m006", "created_at": "2026-03-15T09:00:00", "message_text": "Soporte"},
+    {"id": "m007", "created_at": "2026-03-16T09:00:00", "message_text": "Recordatorio"},
+    {"id": "m008", "created_at": "2026-03-17T09:00:00", "message_text": "Factura"},
+    {"id": "m009", "created_at": "2026-03-18T09:00:00", "message_text": "Prueba"},
+    {"id": "m010", "created_at": "2026-03-19T09:00:00", "message_text": "Agenda"},
+    {"id": "m011", "created_at": "2026-03-20T09:00:00", "message_text": "Hola"},
+    {"id": "m012", "created_at": "2026-03-21T09:00:00", "message_text": "Estado"},
+    {"id": "m013", "created_at": "2026-03-22T09:00:00", "message_text": "Resultado"},
+    {"id": "m014", "created_at": "2026-03-23T09:00:00", "message_text": "Ruta"},
+    {"id": "m015", "created_at": "2026-03-24T09:00:00", "message_text": "Consulta"},
+    {"id": "m016", "created_at": "2026-03-25T09:00:00", "message_text": "Soporte"},
+    {"id": "m017", "created_at": "2026-03-26T09:00:00", "message_text": "Recordatorio"},
+    {"id": "m018", "created_at": "2026-03-27T09:00:00", "message_text": "Factura"},
+    {"id": "m019", "created_at": "2026-03-28T09:00:00", "message_text": "Prueba"},
+    {"id": "m020", "created_at": "2026-03-29T09:00:00", "message_text": "Agenda"},
+    {"id": "m021", "created_at": "2026-03-30T09:00:00", "message_text": "Hola"},
+    {"id": "m022", "created_at": "2026-03-31T09:00:00", "message_text": "Estado"},
+    {"id": "m023", "created_at": "2026-04-01T09:00:00", "message_text": "Resultado"},
+    {"id": "m024", "created_at": "2026-04-02T09:00:00", "message_text": "Ruta"},
+    {"id": "m025", "created_at": "2026-04-03T09:00:00", "message_text": "Consulta"},
+    {"id": "m026", "created_at": "2026-04-04T09:00:00", "message_text": "Soporte"},
+    {"id": "m027", "created_at": "2026-04-05T09:00:00", "message_text": "Recordatorio"},
+    {"id": "m028", "created_at": "2026-04-06T09:00:00", "message_text": "Factura"},
+    {"id": "m029", "created_at": "2026-04-07T09:00:00", "message_text": "Prueba"},
+    {"id": "m030", "created_at": "2026-04-08T09:00:00", "message_text": "Agenda"}
+  ],
+  "samples": [
+    {"id": "s001", "created_at": "2026-04-01T08:00:00", "clients": {"clinic_name": "Clinica Norte Vet"}, "sample_type": "Sangre", "test_name": "Hemograma", "test_code": "A-101", "priority": "normal", "status": "pending_pickup", "couriers": {"name": "Andres Mejia"}},
+    {"id": "s002", "created_at": "2026-04-01T10:10:00", "clients": {"clinic_name": "PetCare 24H"}, "sample_type": "Suero", "test_name": "Perfil hepatico", "test_code": "A-205", "priority": "urgent", "status": "picked_up", "couriers": {"name": "Luisa Roman"}},
+    {"id": "s003", "created_at": "2026-04-02T09:50:00", "clients": {"clinic_name": "Animal House"}, "sample_type": "Orina", "test_name": "Uroanalisis", "test_code": "U-110", "priority": "normal", "status": "on_route", "couriers": {"name": "Camilo Diaz"}},
+    {"id": "s004", "created_at": "2026-04-03T11:30:00", "clients": {"clinic_name": "Vet San Jorge"}, "sample_type": "Sangre", "test_name": "Quimica sanguinea", "test_code": "A-220", "priority": "normal", "status": "received_lab", "couriers": {"name": "Andres Mejia"}},
+    {"id": "s005", "created_at": "2026-04-03T12:10:00", "clients": {"clinic_name": "Clinica Vida Animal"}, "sample_type": "Sangre", "test_name": "TSH", "test_code": "H-015", "priority": "normal", "status": "in_analysis", "couriers": {"name": "Luisa Roman"}},
+    {"id": "s006", "created_at": "2026-04-04T13:55:00", "clients": {"clinic_name": "Happy Pets"}, "sample_type": "Heces", "test_name": "Coprologico", "test_code": "P-078", "priority": "normal", "status": "processed", "couriers": {"name": "Camilo Diaz"}},
+    {"id": "s007", "created_at": "2026-04-05T14:20:00", "clients": {"clinic_name": "Santa Maria Vet"}, "sample_type": "Sangre", "test_name": "PCR Parvo", "test_code": "M-331", "priority": "urgent", "status": "ready_results", "couriers": {"name": "Andres Mejia"}},
+    {"id": "s008", "created_at": "2026-04-06T15:45:00", "clients": {"clinic_name": "Caninos y Felinos"}, "sample_type": "Biopsia", "test_name": "Histopatologia", "test_code": "H-210", "priority": "normal", "status": "delivered_results", "couriers": {"name": "Luisa Roman"}},
+    {"id": "s009", "created_at": "2026-04-07T10:50:00", "clients": {"clinic_name": "Vet Express"}, "sample_type": "Sangre", "test_name": "Creatinina", "test_code": "R-090", "priority": "normal", "status": "in_analysis", "couriers": {"name": "Camilo Diaz"}},
+    {"id": "s010", "created_at": "2026-04-08T09:40:00", "clients": {"clinic_name": "Paw Center"}, "sample_type": "Suero", "test_name": "ALT/AST", "test_code": "Q-120", "priority": "normal", "status": "pending_pickup", "couriers": {"name": "Andres Mejia"}}
+  ],
+  "catalog_preview": [
+    {"test_code": "A-101", "test_name": "Hemograma"},
+    {"test_code": "A-205", "test_name": "Perfil hepatico"}
+  ],
+  "clients_rows": [
+    {"clinic_name": "Clinica Norte Vet", "phone": "3001112233", "address": "Cra 10 # 85-12", "zone": "Norte", "courier_name": "Andres Mejia", "requests_count": 5, "samples_count": 8, "latest_request_status": "assigned", "latest_sample_status": "in_analysis"},
+    {"clinic_name": "PetCare 24H", "phone": "3012223344", "address": "Av Suba 145-21", "zone": "Occidente", "courier_name": "Luisa Roman", "requests_count": 4, "samples_count": 7, "latest_request_status": "on_route", "latest_sample_status": "ready_results"},
+    {"clinic_name": "Animal House", "phone": "3023334455", "address": "Calle 45 # 12-08", "zone": "Centro", "courier_name": "Camilo Diaz", "requests_count": 3, "samples_count": 5, "latest_request_status": "received", "latest_sample_status": "pending_pickup"},
+    {"clinic_name": "Vet San Jorge", "phone": "3034445566", "address": "Cra 7 # 120-33", "zone": "Norte", "courier_name": "Andres Mejia", "requests_count": 6, "samples_count": 9, "latest_request_status": "processed", "latest_sample_status": "delivered_results"},
+    {"clinic_name": "Clinica Vida Animal", "phone": "3045556677", "address": "Calle 80 # 15-20", "zone": "Noroccidente", "courier_name": "Sin mensajero", "requests_count": 2, "samples_count": 3, "latest_request_status": "received", "latest_sample_status": "in_analysis"}
+  ],
+  "analysis_rows": [
+    {"analysis_code": "A-101", "analysis_name": "Hemograma", "category": "Hematologia", "price_cop": 58000, "active_samples": 14},
+    {"analysis_code": "A-205", "analysis_name": "Perfil hepatico", "category": "Bioquimica", "price_cop": 77000, "active_samples": 9},
+    {"analysis_code": "M-331", "analysis_name": "PCR Parvo", "category": "Molecular", "price_cop": 98000, "active_samples": 6}
+  ],
+  "catalog_rows": [
+    {"analysis_code": "A-101", "test_type": "Hematologia", "test_name": "Hemograma", "turnaround": "24 hora(s)", "price_cop": 58000},
+    {"analysis_code": "A-205", "test_type": "Bioquimica", "test_name": "Perfil hepatico", "turnaround": "24 hora(s)", "price_cop": 77000},
+    {"analysis_code": "H-015", "test_type": "Hormonas", "test_name": "TSH", "turnaround": "48 hora(s)", "price_cop": 95000},
+    {"analysis_code": "H-210", "test_type": "Patologia", "test_name": "Histopatologia", "turnaround": "72 hora(s)", "price_cop": 185000},
+    {"analysis_code": "M-331", "test_type": "Molecular", "test_name": "PCR Parvo", "turnaround": "24 hora(s)", "price_cop": 98000}
+  ],
+  "flow_stage_counts": [
+    {"stage_key": "fase_1_clasificacion", "label": "Clasificacion", "count": 8, "order": 1},
+    {"stage_key": "fase_2_recogida_datos", "label": "Recogida de datos", "count": 7, "order": 2},
+    {"stage_key": "fase_3_validacion", "label": "Validacion", "count": 5, "order": 3},
+    {"stage_key": "fase_4_confirmacion", "label": "Confirmacion", "count": 3, "order": 4}
+  ],
+  "flow_transitions": [
+    {"from_stage": "fase_1_clasificacion", "from_label": "Clasificacion", "to_stage": "fase_2_recogida_datos", "to_label": "Recogida de datos", "count": 11},
+    {"from_stage": "fase_2_recogida_datos", "from_label": "Recogida de datos", "to_stage": "fase_3_validacion", "to_label": "Validacion", "count": 8}
+  ],
+  "flow_sessions_rows": [
+    {"external_chat_id": "12001", "clinic_name": "Clinica Norte Vet", "phone": "3001112233", "phase_current": "fase_2_recogida_datos", "phase_label": "Recogida de datos", "status": "in_progress", "requires_handoff": false, "handoff_area": "none", "updated_at": "2026-04-08T09:22:00", "last_transition": "Recogida de datos", "last_transition_at": "2026-04-08T09:20:00"},
+    {"external_chat_id": "12002", "clinic_name": "PetCare 24H", "phone": "3012223344", "phase_current": "fase_3_validacion", "phase_label": "Validacion", "status": "in_progress", "requires_handoff": false, "handoff_area": "none", "updated_at": "2026-04-08T09:40:00", "last_transition": "Validacion", "last_transition_at": "2026-04-08T09:36:00"}
+  ],
+  "flow_kanban_lanes": [
+    {
+      "stage_key": "fase_1_clasificacion",
+      "label": "Clasificacion",
+      "count": 2,
+      "cards": [
+        {"external_chat_id": "12003", "clinic_name": "Animal House", "phone": "3023334455", "status": "in_progress", "requires_handoff": false, "handoff_area": "none", "updated_at": "2026-04-08T08:41:00", "last_transition": "Clasificacion"},
+        {"external_chat_id": "12004", "clinic_name": "Vet San Jorge", "phone": "3034445566", "status": "in_progress", "requires_handoff": false, "handoff_area": "none", "updated_at": "2026-04-08T08:52:00", "last_transition": "Clasificacion"}
+      ]
+    },
+    {
+      "stage_key": "fase_2_recogida_datos",
+      "label": "Recogida de datos",
+      "count": 2,
+      "cards": [
+        {"external_chat_id": "12005", "clinic_name": "Clinica Vida Animal", "phone": "3045556677", "status": "in_progress", "requires_handoff": false, "handoff_area": "none", "updated_at": "2026-04-08T09:11:00", "last_transition": "Recogida de datos"},
+        {"external_chat_id": "12006", "clinic_name": "Happy Pets", "phone": "3056667788", "status": "in_progress", "requires_handoff": false, "handoff_area": "none", "updated_at": "2026-04-08T09:05:00", "last_transition": "Recogida de datos"}
+      ]
+    },
+    {
+      "stage_key": "fase_3_validacion",
+      "label": "Validacion",
+      "count": 1,
+      "cards": [
+        {"external_chat_id": "12007", "clinic_name": "Santa Maria Vet", "phone": "3067778899", "status": "in_progress", "requires_handoff": false, "handoff_area": "none", "updated_at": "2026-04-08T09:16:00", "last_transition": "Validacion"}
+      ]
+    },
+    {
+      "stage_key": "fase_4_confirmacion",
+      "label": "Confirmacion",
+      "count": 1,
+      "cards": [
+        {"external_chat_id": "12008", "clinic_name": "Caninos y Felinos", "phone": "3078889900", "status": "in_progress", "requires_handoff": true, "handoff_area": "operaciones", "updated_at": "2026-04-08T09:18:00", "last_transition": "Confirmacion"}
+      ]
+    }
+  ],
+  "flow_summary": {
+    "sessions_tracked": 13,
+    "transitions_logged": 57,
+    "sessions_handoff": 2
+  },
+  "approval_rows": [
+    {
+      "external_chat_id": "99001",
+      "clinic_name": "Clinica Buen Pastor",
+      "profile_type": "clinica",
+      "profile_label": "Clinica veterinaria",
+      "document_type": "camara comercio",
+      "document_number": "CC-2026-991",
+      "contact_phone": "3009090001",
+      "updated_at": "2026-04-08T10:24:00",
+      "request_id": "r901"
+    },
+    {
+      "external_chat_id": "99002",
+      "clinic_name": "Dr. Mateo Trujillo",
+      "profile_type": "medico_independiente",
+      "profile_label": "Medico veterinario independiente",
+      "document_type": "tarjeta profesional",
+      "document_number": "TP-884421",
+      "contact_phone": "3018080002",
+      "updated_at": "2026-04-08T09:52:00",
+      "request_id": "r902"
+    }
+  ],
+  "reviewed_approval_rows": [
+    {
+      "external_chat_id": "98001",
+      "clinic_name": "Clinica Bosque Norte",
+      "review_status": "approved_manual",
+      "review_status_label": "Aprobado",
+      "review_by": "admin",
+      "review_at": "2026-04-07T15:18:00",
+      "review_reason": "Documentacion valida"
+    },
+    {
+      "external_chat_id": "98002",
+      "clinic_name": "Dra. Camila Perez",
+      "review_status": "rejected_manual",
+      "review_status_label": "Rechazado",
+      "review_by": "admin",
+      "review_at": "2026-04-07T11:02:00",
+      "review_reason": "Tarjeta profesional ilegible"
+    }
+  ]
+}
