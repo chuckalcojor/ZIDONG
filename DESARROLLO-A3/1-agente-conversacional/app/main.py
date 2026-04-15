@@ -96,6 +96,30 @@ VAT_REGIME_OPTIONS = {
     "responsable_iva": "Responsable de IVA",
 }
 
+REQUEST_STATUS_OPTIONS: list[tuple[str, str]] = [
+    ("received", "Recibida"),
+    ("assigned", "Asignada"),
+    ("on_route", "En camino"),
+    ("picked_up", "Retirada"),
+    ("in_lab", "En laboratorio"),
+    ("processed", "Procesada"),
+    ("sent", "Resultados enviados"),
+    ("cancelled", "Cancelada"),
+    ("error_pending_assignment", "Pendiente de asignacion"),
+]
+REQUEST_STATUS_LABELS = {key: label for key, label in REQUEST_STATUS_OPTIONS}
+
+SAMPLE_STATUS_OPTIONS: list[tuple[str, str]] = [
+    ("pending_pickup", "A retirar"),
+    ("on_route", "En camino"),
+    ("received_lab", "Recibida en laboratorio"),
+    ("in_analysis", "En analisis"),
+    ("ready_results", "Resultados listos"),
+    ("delivered_results", "Resultados entregados"),
+    ("cancelled", "Cancelada"),
+]
+SAMPLE_STATUS_LABELS = {key: label for key, label in SAMPLE_STATUS_OPTIONS}
+
 
 def build_openai_fallback_turn(ai_state: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -2556,6 +2580,10 @@ def format_turnaround_label(hours: int | None) -> str:
     return f"{hours} hora(s)"
 
 
+def normalize_status_value(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
 def build_dashboard_context() -> dict[str, Any]:
     clients = safe_fetch(supabase.list_clients_with_assignment, [])
     knowledge_index = safe_fetch(lambda: supabase.list_a3_knowledge_index(limit=5000), [])
@@ -2584,7 +2612,7 @@ def build_dashboard_context() -> dict[str, Any]:
         lambda: supabase.fetch_rows(
             "lab_samples",
             {
-                "select": "id,client_id,status,priority,test_code,test_name,sample_type,created_at,estimated_ready_at,delivered_at,clients(clinic_name),couriers(name)",
+                "select": "id,request_id,client_id,status,priority,test_code,test_name,sample_type,created_at,estimated_ready_at,delivered_at,clients(clinic_name),couriers(name)",
                 "order": "created_at.desc",
                 "limit": "4000",
             },
@@ -2600,6 +2628,9 @@ def build_dashboard_context() -> dict[str, Any]:
     sample_count_by_client: Counter[str] = Counter()
     latest_request_by_client: dict[str, str] = {}
     latest_sample_by_client: dict[str, str] = {}
+    sample_count_by_request: Counter[str] = Counter()
+    latest_sample_status_by_request: dict[str, str] = {}
+    sample_types_by_request: dict[str, set[str]] = {}
 
     knowledge_rows = ensure_dict_rows(knowledge_index)
     professionals_rows = ensure_dict_rows(professionals_index)
@@ -2689,10 +2720,22 @@ def build_dashboard_context() -> dict[str, Any]:
     for row in samples:
         client_id = row.get("client_id")
         if not client_id:
-            continue
-        sample_count_by_client[str(client_id)] += 1
-        if str(client_id) not in latest_sample_by_client:
-            latest_sample_by_client[str(client_id)] = row.get("status") or "-"
+            client_id_text = ""
+        else:
+            client_id_text = str(client_id)
+            sample_count_by_client[client_id_text] += 1
+            if client_id_text not in latest_sample_by_client:
+                latest_sample_by_client[client_id_text] = row.get("status") or "-"
+
+        request_id = str(row.get("request_id") or "").strip()
+        if request_id:
+            sample_count_by_request[request_id] += 1
+            if request_id not in latest_sample_status_by_request:
+                latest_sample_status_by_request[request_id] = row.get("status") or "-"
+
+            sample_type = str(row.get("sample_type") or "").strip()
+            if sample_type:
+                sample_types_by_request.setdefault(request_id, set()).add(sample_type)
 
     request_status_counter = Counter(row.get("status") or "unknown" for row in requests_rows)
     service_area_counter = Counter(row.get("service_area") or "unknown" for row in requests_rows)
@@ -2975,6 +3018,94 @@ def build_dashboard_context() -> dict[str, Any]:
         for name, amount in service_area_counter.most_common(6)
     ]
 
+    request_operation_rows = []
+    for request_row in requests_rows:
+        request_id = str(request_row.get("id") or "").strip()
+        if not request_id:
+            continue
+
+        service_area = str(request_row.get("service_area") or "").strip()
+        intent = str(request_row.get("intent") or "").strip()
+        include_in_operations = bool(request_row.get("pickup_address")) or bool(
+            sample_count_by_request.get(request_id, 0)
+        )
+        if service_area == "route_scheduling" or intent == "programacion_rutas":
+            include_in_operations = True
+
+        if not include_in_operations:
+            continue
+
+        sample_types = sorted(sample_types_by_request.get(request_id, set()))
+        request_operation_rows.append(
+            {
+                "request_id": request_id,
+                "client_id": str(request_row.get("client_id") or "").strip(),
+                "clinic_name": (
+                    ((request_row.get("clients") or {}).get("clinic_name"))
+                    if isinstance(request_row.get("clients"), dict)
+                    else None
+                )
+                or "Sin cliente",
+                "service_area": service_area or "unknown",
+                "intent": intent or "unknown",
+                "priority": request_row.get("priority") or "normal",
+                "status": request_row.get("status") or "unknown",
+                "pickup_address": request_row.get("pickup_address") or "Sin domicilio",
+                "scheduled_pickup_date": request_row.get("scheduled_pickup_date") or "-",
+                "created_at": request_row.get("created_at") or "-",
+                "courier_name": (
+                    ((request_row.get("couriers") or {}).get("name"))
+                    if isinstance(request_row.get("couriers"), dict)
+                    else None
+                )
+                or "Sin asignar",
+                "sample_count": sample_count_by_request.get(request_id, 0),
+                "sample_types": sample_types,
+                "sample_types_text": ", ".join(sample_types) if sample_types else "Sin muestras",
+                "latest_sample_status": latest_sample_status_by_request.get(request_id, "-"),
+            }
+        )
+
+    if not request_operation_rows:
+        request_operation_rows = [
+            {
+                "request_id": str(request_row.get("id") or "").strip(),
+                "client_id": str(request_row.get("client_id") or "").strip(),
+                "clinic_name": (
+                    ((request_row.get("clients") or {}).get("clinic_name"))
+                    if isinstance(request_row.get("clients"), dict)
+                    else None
+                )
+                or "Sin cliente",
+                "service_area": str(request_row.get("service_area") or "unknown"),
+                "intent": str(request_row.get("intent") or "unknown"),
+                "priority": request_row.get("priority") or "normal",
+                "status": request_row.get("status") or "unknown",
+                "pickup_address": request_row.get("pickup_address") or "Sin domicilio",
+                "scheduled_pickup_date": request_row.get("scheduled_pickup_date") or "-",
+                "created_at": request_row.get("created_at") or "-",
+                "courier_name": (
+                    ((request_row.get("couriers") or {}).get("name"))
+                    if isinstance(request_row.get("couriers"), dict)
+                    else None
+                )
+                or "Sin asignar",
+                "sample_count": sample_count_by_request.get(str(request_row.get("id") or ""), 0),
+                "sample_types": sorted(
+                    sample_types_by_request.get(str(request_row.get("id") or ""), set())
+                ),
+                "sample_types_text": ", ".join(
+                    sorted(sample_types_by_request.get(str(request_row.get("id") or ""), set()))
+                )
+                or "Sin muestras",
+                "latest_sample_status": latest_sample_status_by_request.get(
+                    str(request_row.get("id") or ""), "-"
+                ),
+            }
+            for request_row in requests_rows[:200]
+            if str(request_row.get("id") or "").strip()
+        ]
+
     recent_requests = requests_rows[:50]
     recent_messages = messages[:50]
     recent_samples = samples[:120]
@@ -3071,6 +3202,7 @@ def build_dashboard_context() -> dict[str, Any]:
         "sample_status": dict(sample_status_counter),
         "clients": clients,
         "requests": recent_requests,
+        "requests_rows": request_operation_rows,
         "conversations": conversations[:25],
         "messages": recent_messages,
         "samples": recent_samples,
@@ -3079,6 +3211,14 @@ def build_dashboard_context() -> dict[str, Any]:
         "couriers_options": couriers_options,
         "client_type_options": CLIENT_TYPE_OPTIONS,
         "vat_regime_options": VAT_REGIME_OPTIONS,
+        "request_status_options": [
+            {"value": value, "label": label} for value, label in REQUEST_STATUS_OPTIONS
+        ],
+        "request_status_labels": REQUEST_STATUS_LABELS,
+        "sample_status_options": [
+            {"value": value, "label": label} for value, label in SAMPLE_STATUS_OPTIONS
+        ],
+        "sample_status_labels": SAMPLE_STATUS_LABELS,
         "knowledge_profile_editing_enabled": knowledge_profile_editing_enabled,
         "knowledge_profile_compat_mode": knowledge_profile_compat_mode,
         "analysis_rows": analysis_rows,
@@ -4786,6 +4926,18 @@ def dashboard() -> Any:
     )
 
 
+@app.get("/solicitudes")
+@login_required
+def requests_page() -> Any:
+    context = build_dashboard_context()
+    return render_template(
+        "dashboard.html",
+        context=context,
+        username=session.get("username"),
+        active_tab="solicitudes",
+    )
+
+
 @app.get("/clientes")
 @login_required
 def clients_page() -> Any:
@@ -5045,6 +5197,128 @@ def dashboard_update_client_assignment() -> Any:
         )
 
     return jsonify({"ok": True, "client_id": client_id, "courier_id": courier_id or None})
+
+
+@app.post("/api/dashboard/request-status")
+@login_required
+def dashboard_update_request_status() -> Any:
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid payload"}), 400
+
+    request_id = str(payload.get("request_id") or "").strip()
+    status = normalize_status_value(payload.get("status"))
+
+    if not request_id:
+        return jsonify({"error": "Missing request_id"}), 400
+    if status not in REQUEST_STATUS_LABELS:
+        return jsonify({"error": "Invalid request status"}), 400
+
+    now_iso = datetime.now().isoformat()
+    updated_by = session.get("username") or "operator"
+
+    try:
+        supabase.update_request(
+            request_id,
+            {
+                "status": status,
+                "updated_at": now_iso,
+            },
+        )
+        supabase.create_request_event(
+            request_id=request_id,
+            event_type="dashboard_status_update",
+            event_payload={
+                "status": status,
+                "status_label": REQUEST_STATUS_LABELS.get(status, status),
+                "updated_by": updated_by,
+                "source": "dashboard_solicitudes",
+                "updated_at": now_iso,
+            },
+        )
+    except httpx.HTTPStatusError as exc:
+        return (
+            jsonify(
+                {
+                    "error": "Unable to update request status",
+                    "status_code": exc.response.status_code,
+                }
+            ),
+            503,
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "request_id": request_id,
+            "status": status,
+            "status_label": REQUEST_STATUS_LABELS.get(status, status),
+        }
+    )
+
+
+@app.post("/api/dashboard/sample-status")
+@login_required
+def dashboard_update_sample_status() -> Any:
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid payload"}), 400
+
+    sample_id = str(payload.get("sample_id") or "").strip()
+    status = normalize_status_value(payload.get("status"))
+
+    if not sample_id:
+        return jsonify({"error": "Missing sample_id"}), 400
+    if status not in SAMPLE_STATUS_LABELS:
+        return jsonify({"error": "Invalid sample status"}), 400
+
+    now_iso = datetime.now().isoformat()
+    updated_by = session.get("username") or "operator"
+
+    try:
+        supabase.update_rows(
+            "lab_samples",
+            {"id": f"eq.{sample_id}"},
+            {
+                "status": status,
+                "updated_at": now_iso,
+            },
+        )
+        supabase.insert_rows(
+            "lab_sample_events",
+            [
+                {
+                    "sample_id": sample_id,
+                    "event_type": "dashboard_status_update",
+                    "event_payload": {
+                        "status": status,
+                        "status_label": SAMPLE_STATUS_LABELS.get(status, status),
+                        "updated_by": updated_by,
+                        "source": "dashboard_muestras",
+                        "updated_at": now_iso,
+                    },
+                }
+            ],
+        )
+    except httpx.HTTPStatusError as exc:
+        return (
+            jsonify(
+                {
+                    "error": "Unable to update sample status",
+                    "status_code": exc.response.status_code,
+                }
+            ),
+            503,
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "sample_id": sample_id,
+            "status": status,
+            "status_label": SAMPLE_STATUS_LABELS.get(status, status),
+        }
+    )
 
 
 @app.post("/webhooks/new-client-registration")

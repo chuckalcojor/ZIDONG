@@ -110,6 +110,48 @@ Endpoint: `POST /api/dashboard/client-assignment`
 
 - `courier_id` empty (`""`) clears current assignment.
 
+### Update request status (manual dashboard)
+
+Endpoint: `POST /api/dashboard/request-status`
+
+```json
+{
+  "request_id": "uuid-request",
+  "status": "on_route"
+}
+```
+
+Allowed `status` values:
+- `received`
+- `assigned`
+- `on_route`
+- `picked_up`
+- `in_lab`
+- `processed`
+- `sent`
+- `cancelled`
+- `error_pending_assignment`
+
+### Update sample status (manual dashboard)
+
+Endpoint: `POST /api/dashboard/sample-status`
+
+```json
+{
+  "sample_id": "uuid-sample",
+  "status": "in_analysis"
+}
+```
+
+Allowed `status` values:
+- `pending_pickup`
+- `on_route`
+- `received_lab`
+- `in_analysis`
+- `ready_results`
+- `delivered_results`
+- `cancelled`
+
 ## Anarvet Result Sync Payload
 
 Endpoint: `POST /webhooks/anarvet/result`

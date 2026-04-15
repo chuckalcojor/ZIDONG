@@ -134,11 +134,14 @@ Integracion sugerida para Google Forms:
 ## Dashboard privado
 - `GET /login`
 - `GET /dashboard`
+- `GET /solicitudes`
 - `GET /clientes`
 - `GET /muestras`
 - `GET /analisis`
 - `GET /flujo`
 - `GET /api/dashboard/overview`
+- `POST /api/dashboard/request-status`
+- `POST /api/dashboard/sample-status`
 
 Credenciales por `.env`:
 - `DASHBOARD_ADMIN_USER`

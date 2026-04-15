@@ -3,33 +3,47 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>A3 Control Center</title>
+  <title>A3 Centro de Control</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='20260324-kanban-v4') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='20260415-contract-v4') }}">
   <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
-<body class="theme-dark">
+<body class="theme-dark dashboard-page">
+  <div class="scene-glow glow-left"></div>
+  <div class="scene-glow glow-right"></div>
+
   <div class="frame-bg">
-    <div class="app-frame">
+    <div class="app-shell">
       <aside class="side-nav">
-        <div class="logo-row">
-          <div class="logo-pill">A3</div>
-          <div>
-            <div class="logo-title">Control Center</div>
-            <div class="logo-sub">Laboratorio Veterinario</div>
+        <div class="brand-row">
+          <div class="brand-icon">A3</div>
+          <div class="brand-copy">
+            <strong>Centro de Control</strong>
+            <span>Laboratorio Veterinario</span>
           </div>
         </div>
 
         <nav class="menu-list">
-          <a href="{{ url_for('dashboard') }}" class="menu-link {{ 'active' if active_tab == 'dashboard' else '' }}"><i data-lucide="layout-dashboard"></i>Dashboard</a>
+          <span class="menu-caption">Menu principal</span>
+          <a href="{{ url_for('dashboard') }}" class="menu-link {{ 'active' if active_tab == 'dashboard' else '' }}"><i data-lucide="layout-dashboard"></i>Tablero</a>
+          <a href="{{ url_for('requests_page') }}" class="menu-link {{ 'active' if active_tab == 'solicitudes' else '' }}"><i data-lucide="clipboard-list"></i>Solicitudes</a>
           <a href="{{ url_for('clients_page') }}" class="menu-link {{ 'active' if active_tab == 'clientes' else '' }}"><i data-lucide="users"></i>Clientes</a>
           <a href="{{ url_for('samples_page') }}" class="menu-link {{ 'active' if active_tab == 'muestras' else '' }}"><i data-lucide="test-tube-2"></i>Muestras</a>
           <a href="{{ url_for('analysis_page') }}" class="menu-link {{ 'active' if active_tab == 'analisis' else '' }}"><i data-lucide="activity"></i>Analisis</a>
           <a href="{{ url_for('flow_page') }}" class="menu-link {{ 'active' if active_tab == 'flujo' else '' }}"><i data-lucide="git-branch"></i>Flujo</a>
         </nav>
+
+        <div class="menu-divider"></div>
+
+        <div class="side-notes">
+          <span class="menu-caption">Empresa</span>
+          <p>Operacion A3</p>
+          <p>Solicitudes y trazabilidad</p>
+          <p>Control interno</p>
+        </div>
 
         <div class="side-footer">
           <div class="user-chip"><i data-lucide="user-round"></i>{{ username }}</div>
@@ -38,49 +52,330 @@
       </aside>
 
       <main class="main-panel">
-        <header class="top-bar">
-          <div class="top-actions">
-            <span class="action-pill">Market</span>
-            <span class="action-pill">Wallets</span>
-            <span class="action-pill">Tools</span>
+        {% set ui_service_area_labels = {
+          "route_scheduling": "Programacion de rutas",
+          "accounting": "Contabilidad",
+          "results": "Resultados",
+          "new_client": "Cliente nuevo",
+          "unknown": "Sin clasificar",
+          "none": "Ninguna",
+        } %}
+        {% set ui_intent_labels = {
+          "programacion_rutas": "Programacion de rutas",
+          "contabilidad": "Contabilidad",
+          "resultados": "Resultados",
+          "alta_cliente": "Alta de cliente",
+          "no_clasificado": "Sin clasificar",
+          "unknown": "Sin clasificar",
+        } %}
+        {% set ui_status_labels = {
+          "pending_pickup": "A retirar",
+          "picked_up": "Retirada",
+          "on_route": "En camino",
+          "received_lab": "Recibida en laboratorio",
+          "in_lab": "En laboratorio",
+          "in_analysis": "En analisis",
+          "processed": "Procesada",
+          "ready_results": "Resultados listos",
+          "delivered_results": "Resultados entregados",
+          "assigned": "Asignada",
+          "received": "Recibida",
+          "sent": "Enviada",
+          "error_pending_assignment": "Pendiente de asignacion",
+          "open": "Abierta",
+          "closed": "Cerrada",
+          "in_progress": "En progreso",
+          "cancelled": "Cancelada",
+          "canceled": "Cancelada",
+          "unknown": "Sin clasificar",
+        } %}
+
+        <header class="top-shell">
+          <div class="top-line top-line-meta">
+            <div class="top-breadcrumbs">
+              <span class="crumb-pill"><i data-lucide="grid-2x2"></i>Tablero</span>
+              <span class="crumb-note">{{ context.summary.active_requests }} proyectos activos</span>
+            </div>
+
+            <div class="top-right">
+              <span class="updated-pill">Ultima actualizacion: <span id="last-updated-time">--:--</span></span>
+              <div class="avatar-stack" aria-hidden="true">
+                <span class="avatar-chip">A</span>
+                <span class="avatar-chip">3</span>
+                <span class="avatar-chip">Ope</span>
+              </div>
+              <button type="button" class="ghost-btn"><i data-lucide="share-2"></i>Compartir</button>
+            </div>
           </div>
-          <div class="search-pill"><i data-lucide="search"></i>Buscar cliente, muestra o analisis...</div>
-          <div class="top-icons">
-            <span class="icon-btn"><i data-lucide="bell"></i></span>
-            <span class="icon-btn"><i data-lucide="settings"></i></span>
+
+          <div class="top-line top-line-actions">
+            <div></div>
+            <div class="action-group">
+              <button type="button" class="ghost-btn"><i data-lucide="download"></i>Exportar</button>
+              <button type="button" class="primary-btn"><i data-lucide="plus"></i>Nuevo contrato</button>
+            </div>
           </div>
         </header>
 
         {% if active_tab == 'dashboard' %}
         <section class="section-head">
-          <h1>Dashboard Ejecutivo</h1>
-          <p>Metricas operativas en tiempo real para gestion del laboratorio.</p>
+          <h1>Buenos dias, {{ username }}</h1>
         </section>
 
-        <section class="kpi-grid">
-          <article class="kpi-card"><span>Clientes Totales</span><strong>{{ context.summary.total_clients }}</strong></article>
-          <article class="kpi-card"><span>Con Mensajero</span><strong>{{ context.summary.clients_with_courier }}</strong></article>
-          <article class="kpi-card"><span>Sin Mensajero</span><strong>{{ context.summary.clients_without_courier }}</strong></article>
-          <article class="kpi-card"><span>Solicitudes Activas</span><strong>{{ context.summary.active_requests }}</strong></article>
-          <article class="kpi-card"><span>Muestras Activas</span><strong>{{ context.summary.total_samples }}</strong></article>
-          <article class="kpi-card"><span>Analisis en Curso</span><strong>{{ context.summary.analysis_active_types }}</strong></article>
-          <article class="kpi-card"><span>Para Retirar</span><strong>{{ context.summary.pending_pickup }}</strong></article>
-          <article class="kpi-card"><span>En Analisis</span><strong>{{ context.summary.in_analysis }}</strong></article>
-          <article class="kpi-card"><span>Resultados Listos</span><strong>{{ context.summary.ready_results }}</strong></article>
-          <article class="kpi-card"><span>Resultados Entregados</span><strong>{{ context.summary.delivered_results }}</strong></article>
-          <article class="kpi-card"><span>Conversaciones Abiertas</span><strong>{{ context.summary.open_conversations }}</strong></article>
-          <article class="kpi-card"><span>Catalogo</span><strong>{{ context.summary.catalog_tests }}</strong></article>
+        <section class="dashboard-kpi-grid">
+          <article class="kpi-card">
+            <i data-lucide="file-text" class="kpi-icon" aria-hidden="true"></i>
+            <span>Solicitudes activas</span>
+            <strong>{{ context.summary.active_requests }}</strong>
+            <small class="kpi-delta kpi-delta-up">+{{ context.summary.clients_with_courier }} vs distribucion</small>
+          </article>
+
+          <article class="kpi-card">
+            <i data-lucide="clock-3" class="kpi-icon" aria-hidden="true"></i>
+            <span>Recogidas pendientes</span>
+            <strong>{{ context.summary.pending_pickup }}</strong>
+            <small class="kpi-delta kpi-delta-up">+{{ context.summary.in_analysis }} en ciclo de laboratorio</small>
+          </article>
+
+          <article class="kpi-card">
+            <i data-lucide="folder" class="kpi-icon" aria-hidden="true"></i>
+            <span>Total de muestras</span>
+            <strong>{{ context.summary.total_samples }}</strong>
+            <small class="kpi-delta kpi-delta-up">+{{ context.summary.analysis_active_types }} tipos activos</small>
+          </article>
+
+          <article class="kpi-card">
+            <i data-lucide="file-x" class="kpi-icon" aria-hidden="true"></i>
+            <span>Resultados listos</span>
+            <strong>{{ context.summary.ready_results }}</strong>
+            <small class="kpi-delta kpi-delta-down">-{{ context.summary.clients_without_courier }} sin mensajero</small>
+          </article>
         </section>
 
-        <section class="chart-grid">
+        <section class="metric-chip-row" aria-label="Resumen operativo completo">
+          <article class="metric-chip"><span>Clientes totales</span><strong>{{ context.summary.total_clients }}</strong></article>
+          <article class="metric-chip"><span>Con mensajero</span><strong>{{ context.summary.clients_with_courier }}</strong></article>
+          <article class="metric-chip"><span>Sin mensajero</span><strong>{{ context.summary.clients_without_courier }}</strong></article>
+          <article class="metric-chip"><span>Solicitudes activas</span><strong>{{ context.summary.active_requests }}</strong></article>
+          <article class="metric-chip"><span>Muestras activas</span><strong>{{ context.summary.total_samples }}</strong></article>
+          <article class="metric-chip"><span>Analisis en curso</span><strong>{{ context.summary.analysis_active_types }}</strong></article>
+          <article class="metric-chip"><span>Conversaciones abiertas</span><strong>{{ context.summary.open_conversations }}</strong></article>
+          <article class="metric-chip"><span>Catalogo</span><strong>{{ context.summary.catalog_tests }}</strong></article>
+        </section>
+
+        <section class="dashboard-grid top-grid">
           <article class="panel-card">
-            <h3>Estado de Muestras</h3>
-            <div id="chart-sample-status"></div>
+            <div class="panel-head">
+              <div>
+                <h3>Resumen operativo</h3>
+                <p class="panel-headline">{{ context.summary.active_requests }} solicitudes activas</p>
+                <p class="panel-caption">Distribucion por area operativa</p>
+              </div>
+              <button type="button" class="ghost-btn ghost-btn-sm">Semanal <i data-lucide="chevron-down"></i></button>
+            </div>
+            <div id="chart-revenue-bars"></div>
           </article>
+
           <article class="panel-card">
-            <h3>Solicitudes por Area</h3>
-            <div id="chart-service-areas"></div>
+            <div class="panel-head panel-head-inline">
+              <h3>Operaciones recientes</h3>
+              <div class="project-toolbar">
+                <label class="project-search" aria-label="Buscar">
+                  <i data-lucide="search"></i>
+                  <input type="text" placeholder="Buscar" readonly>
+                </label>
+                <button type="button" class="ghost-btn ghost-btn-sm">Filtros <i data-lucide="chevron-down"></i></button>
+              </div>
+            </div>
+
+            <div class="project-table-wrap">
+              <table class="compact-table">
+                <thead>
+                  <tr>
+                    <th>Operacion</th>
+                    <th>Responsable</th>
+                    <th>Fecha limite</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in context.requests[:7] %}
+                  {% set assignee_name = row.couriers.name if row.couriers else 'Sin asignar' %}
+                  {% set due_date = row.scheduled_pickup_date[:10] if row.scheduled_pickup_date else (row.created_at[:10] if row.created_at else '-') %}
+                  <tr>
+                    <td>
+                      {% set project_label = ui_service_area_labels.get(row.service_area or '') %}
+                      {% if not project_label %}
+                        {% set project_label = ui_intent_labels.get(row.intent or '') %}
+                      {% endif %}
+                      {% if not project_label %}
+                        {% set project_label = (row.service_area or row.intent or 'sin_area').replace('_', ' ') | title %}
+                      {% endif %}
+                      <span class="project-name"><i data-lucide="folder"></i>{{ project_label }}</span>
+                    </td>
+                    <td>
+                      <span class="assignee-pill">
+                        <span class="assignee-avatar">{{ assignee_name[:1] | upper }}</span>
+                        {{ assignee_name }}
+                      </span>
+                    </td>
+                    <td><span class="due-pill">{{ due_date }}</span></td>
+                  </tr>
+                  {% else %}
+                  <tr>
+                    <td colspan="3" class="empty-cell">Sin operaciones recientes</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            <button type="button" class="full-width-btn">Ver todas las operaciones</button>
           </article>
+        </section>
+
+        {% set ns = namespace(max_value=1) %}
+        {% for item in context.funnel %}
+          {% if item.value > ns.max_value %}
+            {% set ns.max_value = item.value %}
+          {% endif %}
+        {% endfor %}
+        {% set total_samples_base = context.summary.total_samples if context.summary.total_samples > 0 else 1 %}
+        {% set growth_week = ((context.summary.ready_results / total_samples_base) * 100) | round(1) %}
+        {% set growth_month = ((context.summary.in_analysis / total_samples_base) * 100) | round(1) %}
+        {% set growth_quarter = ((context.summary.delivered_results / total_samples_base) * 100) | round(1) %}
+
+        <section class="dashboard-grid bottom-grid">
+          <article class="panel-card leads-card">
+            <div class="panel-head">
+              <div>
+                <h3>Solicitudes por estado</h3>
+                <p class="panel-caption">{{ context.summary.active_requests }} en flujo</p>
+              </div>
+              <span class="icon-pill"><i data-lucide="check"></i></span>
+            </div>
+
+            <div class="status-meter-list">
+              {% for item in context.funnel %}
+              {% set ratio = ((item.value / ns.max_value) * 100) if ns.max_value else 0 %}
+              <div class="status-meter-row">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+              <div class="status-meter-track">
+                <span class="status-meter-fill" style="width: {{ '%.1f' | format(ratio) }}%;"></span>
+              </div>
+              {% endfor %}
+            </div>
+          </article>
+
+          <article class="panel-card trend-card">
+            <div class="panel-head panel-head-inline">
+              <div>
+                <h3>Tendencia operativa</h3>
+                <p class="panel-caption">{{ context.summary.total_samples }} muestras registradas</p>
+              </div>
+              <div class="segment-pill-group" role="tablist" aria-label="Rangos de tiempo">
+                <button type="button" class="segment-pill">1D</button>
+                <button type="button" class="segment-pill">1W</button>
+                <button type="button" class="segment-pill">1M</button>
+                <button type="button" class="segment-pill active">6M</button>
+                <button type="button" class="segment-pill">1Y</button>
+              </div>
+            </div>
+
+            <div class="trend-layout">
+              <div id="chart-traffic-line"></div>
+              <div class="growth-stack">
+                <article class="growth-card growth-card-down">
+                  <span>Crec. 1 sem.</span>
+                  <strong>{{ growth_week }}%</strong>
+                </article>
+                <article class="growth-card">
+                  <span>Crec. 6 mes.</span>
+                  <strong>+{{ growth_month }}%</strong>
+                </article>
+                <article class="growth-card">
+                  <span>Crec. 3 mes.</span>
+                  <strong>+{{ growth_quarter }}%</strong>
+                </article>
+              </div>
+            </div>
+          </article>
+        </section>
+        {% endif %}
+
+        {% if active_tab == 'solicitudes' %}
+        {% set request_rows = context.requests_rows if context.requests_rows else [] %}
+        {% set requests_total = request_rows | length %}
+        {% set requests_pending = request_rows | selectattr('status', 'equalto', 'received') | list | length %}
+        {% set requests_assigned = request_rows | selectattr('status', 'equalto', 'assigned') | list | length %}
+        {% set requests_on_route = request_rows | selectattr('status', 'equalto', 'on_route') | list | length %}
+        {% set requests_picked_up = request_rows | selectattr('status', 'equalto', 'picked_up') | list | length %}
+        {% set requests_in_lab = request_rows | selectattr('status', 'equalto', 'in_lab') | list | length %}
+
+        <section class="section-head">
+          <h1>Solicitudes</h1>
+          <p>Gestion operativa de retiros con domicilio, cantidad y tipo de muestra, enlazada con clientes y muestras.</p>
+        </section>
+
+        <section class="kpi-grid compact">
+          <article class="kpi-card"><span>Solicitudes activas</span><strong>{{ requests_total }}</strong></article>
+          <article class="kpi-card"><span>Recibidas</span><strong>{{ requests_pending }}</strong></article>
+          <article class="kpi-card"><span>Asignadas</span><strong>{{ requests_assigned }}</strong></article>
+          <article class="kpi-card"><span>En camino</span><strong>{{ requests_on_route }}</strong></article>
+          <article class="kpi-card"><span>Retiradas</span><strong>{{ requests_picked_up }}</strong></article>
+          <article class="kpi-card"><span>En laboratorio</span><strong>{{ requests_in_lab }}</strong></article>
+        </section>
+
+        <section class="table-shell">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Cliente</th>
+                  <th>Domicilio</th>
+                  <th>Cant. muestras</th>
+                  <th>Tipo de muestra</th>
+                  <th>Prioridad</th>
+                  <th>Mensajero</th>
+                  <th>Estado solicitud</th>
+                  <th>Ultimo estado de muestra</th>
+                  <th>Fecha programada</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in request_rows %}
+                <tr data-request-id="{{ row.request_id }}">
+                  <td>{{ row.created_at[:16] if row.created_at and row.created_at != '-' else '-' }}</td>
+                  <td>
+                    <strong>{{ row.clinic_name }}</strong>
+                    <div class="table-subtext">{{ ui_service_area_labels.get(row.service_area, row.service_area) }}</div>
+                  </td>
+                  <td>{{ row.pickup_address or 'Sin domicilio' }}</td>
+                  <td>{{ row.sample_count }}</td>
+                  <td>{{ row.sample_types_text }}</td>
+                  <td>{{ row.priority | title if row.priority else '-' }}</td>
+                  <td>{{ row.courier_name or 'Sin asignar' }}</td>
+                  <td>
+                    <select class="cell-select request-status-select" data-request-id="{{ row.request_id }}">
+                      {% for option in context.request_status_options %}
+                      <option value="{{ option.value }}" {{ 'selected' if row.status == option.value else '' }}>{{ option.label }}</option>
+                      {% endfor %}
+                    </select>
+                    <small class="save-flag" data-request-save></small>
+                  </td>
+                  <td><span class="status-badge">{{ ui_status_labels.get(row.latest_sample_status, row.latest_sample_status) }}</span></td>
+                  <td>{{ row.scheduled_pickup_date[:10] if row.scheduled_pickup_date and row.scheduled_pickup_date != '-' else '-' }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="10" class="empty-cell">No hay solicitudes para gestionar en este momento.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
         </section>
         {% endif %}
 
@@ -92,6 +387,7 @@
           <p class="section-note-warn">Modo compatibilidad activo: perfil avanzado guardado en esquema legacy hasta aplicar migracion SQL 007 en Supabase.</p>
           {% endif %}
         </section>
+
         <section class="table-shell">
           <div class="table-wrap">
             <table class="table-clients">
@@ -192,8 +488,8 @@
                   <td><span class="status-badge">{{ row.client_status }}</span></td>
                   <td>{{ row.requests_count }}</td>
                   <td>{{ row.samples_count }}</td>
-                  <td><span class="status-badge">{{ row.latest_request_status }}</span></td>
-                  <td><span class="status-badge">{{ row.latest_sample_status }}</span></td>
+                  <td><span class="status-badge">{{ ui_status_labels.get(row.latest_request_status, row.latest_request_status) }}</span></td>
+                  <td><span class="status-badge">{{ ui_status_labels.get(row.latest_sample_status, row.latest_sample_status) }}</span></td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -203,19 +499,99 @@
         {% endif %}
 
         {% if active_tab == 'muestras' %}
+        {% set demo_samples = [
+          {
+            "created_at": "2026-04-15 08:10",
+            "client_name": "Clinica Vet Norte",
+            "sample_type": "Sangre",
+            "test_name": "Hemograma completo",
+            "priority": "Alta",
+            "status": "pending_pickup",
+            "courier_name": "Carlos M.",
+          },
+          {
+            "created_at": "2026-04-15 08:42",
+            "client_name": "PetCare Kennedy",
+            "sample_type": "Suero",
+            "test_name": "Perfil hepatico",
+            "priority": "Media",
+            "status": "picked_up",
+            "courier_name": "Laura P.",
+          },
+          {
+            "created_at": "2026-04-15 09:03",
+            "client_name": "Hospital Vet Andino",
+            "sample_type": "Orina",
+            "test_name": "Uroanalisis",
+            "priority": "Baja",
+            "status": "on_route",
+            "courier_name": "Miguel R.",
+          },
+          {
+            "created_at": "2026-04-15 09:35",
+            "client_name": "Animal Health Suba",
+            "sample_type": "Sangre",
+            "test_name": "Quimica sanguinea 6 elementos",
+            "priority": "Alta",
+            "status": "received_lab",
+            "courier_name": "Paula V.",
+          },
+          {
+            "created_at": "2026-04-15 10:14",
+            "client_name": "VetHome Fontibon",
+            "sample_type": "Materia fecal",
+            "test_name": "Coproparasitario",
+            "priority": "Media",
+            "status": "in_lab",
+            "courier_name": "Carlos M.",
+          },
+          {
+            "created_at": "2026-04-15 10:38",
+            "client_name": "Centro Veterinario Luna",
+            "sample_type": "Sangre",
+            "test_name": "Hemoparasitos",
+            "priority": "Alta",
+            "status": "processed",
+            "courier_name": "Laura P.",
+          },
+          {
+            "created_at": "2026-04-15 11:05",
+            "client_name": "Vet Integral Chapinero",
+            "sample_type": "Plasma",
+            "test_name": "Perfil renal",
+            "priority": "Media",
+            "status": "ready_results",
+            "courier_name": "Miguel R.",
+          },
+        ] %}
+        {% set use_demo_samples = not context.samples %}
+        {% set sample_rows_view = context.samples if context.samples else demo_samples %}
+        {% set sample_status_view = context.sample_status if context.samples else {
+          "pending_pickup": 6,
+          "picked_up": 4,
+          "on_route": 3,
+          "received_lab": 5,
+          "in_lab": 2,
+          "processed": 3,
+          "ready_results": 2,
+        } %}
+
         <section class="section-head">
           <h1>Muestras</h1>
           <p>Trazabilidad completa: a retirar, retirada, en camino, laboratorio y analisis listo.</p>
+          {% if use_demo_samples %}
+          <p class="section-note-warn">Sin registros reales en muestras. Se muestran datos de ejemplo para previsualizacion.</p>
+          {% endif %}
         </section>
 
         <section class="kpi-grid compact">
-          <article class="kpi-card"><span>A retirar</span><strong>{{ context.sample_status.get('pending_pickup', 0) }}</strong></article>
-          <article class="kpi-card"><span>Retirada</span><strong>{{ context.sample_status.get('picked_up', 0) }}</strong></article>
-          <article class="kpi-card"><span>En camino</span><strong>{{ context.sample_status.get('on_route', 0) }}</strong></article>
-          <article class="kpi-card"><span>En laboratorio</span><strong>{{ context.sample_status.get('received_lab', 0) + context.sample_status.get('in_lab', 0) }}</strong></article>
-          <article class="kpi-card"><span>Para procesar</span><strong>{{ context.sample_status.get('received_lab', 0) }}</strong></article>
-          <article class="kpi-card"><span>Procesada</span><strong>{{ context.sample_status.get('processed', 0) }}</strong></article>
-          <article class="kpi-card"><span>Analisis listo</span><strong>{{ context.sample_status.get('ready_results', 0) }}</strong></article>
+          <article class="kpi-card"><span>A retirar</span><strong>{{ sample_status_view.get('pending_pickup', 0) }}</strong></article>
+          <article class="kpi-card"><span>Retirada</span><strong>{{ sample_status_view.get('picked_up', 0) }}</strong></article>
+          <article class="kpi-card"><span>En camino</span><strong>{{ sample_status_view.get('on_route', 0) }}</strong></article>
+          <article class="kpi-card"><span>En laboratorio</span><strong>{{ sample_status_view.get('received_lab', 0) + sample_status_view.get('in_lab', 0) }}</strong></article>
+          <article class="kpi-card"><span>Para procesar</span><strong>{{ sample_status_view.get('received_lab', 0) }}</strong></article>
+          <article class="kpi-card"><span>Procesada</span><strong>{{ sample_status_view.get('processed', 0) }}</strong></article>
+          <article class="kpi-card"><span>Analisis listo</span><strong>{{ sample_status_view.get('ready_results', 0) }}</strong></article>
         </section>
 
         <section class="table-shell">
@@ -223,19 +599,31 @@
             <table>
               <thead>
                 <tr>
-                  <th>Fecha</th><th>Cliente</th><th>Tipo Muestra</th><th>Analisis</th><th>Prioridad</th><th>Estado</th><th>Mensajero</th>
+                  <th>Fecha</th><th>Cliente</th><th>Tipo Muestra</th><th>Analisis</th><th>Prioridad</th><th>Estado</th><th>Actualizar estado</th><th>Mensajero</th>
                 </tr>
               </thead>
               <tbody>
-                {% for sample in context.samples %}
+                {% for sample in sample_rows_view %}
                 <tr>
                   <td>{{ sample.created_at[:16] if sample.created_at else '-' }}</td>
-                  <td>{{ sample.clients.clinic_name if sample.clients else '-' }}</td>
+                  <td>{{ sample.clients.clinic_name if sample.clients else (sample.client_name or '-') }}</td>
                   <td>{{ sample.sample_type or '-' }}</td>
                   <td>{{ sample.test_name or sample.test_code or '-' }}</td>
                   <td>{{ sample.priority or '-' }}</td>
-                  <td><span class="status-badge">{{ sample.status }}</span></td>
-                  <td>{{ sample.couriers.name if sample.couriers else '-' }}</td>
+                  <td><span class="status-badge">{{ ui_status_labels.get(sample.status, sample.status) }}</span></td>
+                  <td>
+                    {% if sample.id %}
+                    <select class="cell-select sample-status-select" data-sample-id="{{ sample.id }}">
+                      {% for option in context.sample_status_options %}
+                      <option value="{{ option.value }}" {{ 'selected' if sample.status == option.value else '' }}>{{ option.label }}</option>
+                      {% endfor %}
+                    </select>
+                    <small class="save-flag" data-sample-save></small>
+                    {% else %}
+                    <span class="status-badge">Demo</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ sample.couriers.name if sample.couriers else (sample.courier_name or '-') }}</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -323,11 +711,11 @@
                     data-clinic="{{ card.clinic_name }}"
                     data-phone="{{ card_identifier }}"
                     data-chat="{{ card.external_chat_id }}"
-                    data-status="{{ card.status }}"
+                    data-status="{{ ui_status_labels.get(card.status, card.status) }}"
                     data-transition="{{ card.last_transition }}"
                     data-updated="{{ card.updated_at[:16] if card.updated_at and card.updated_at != '-' else '-' }}"
                     data-stage="{{ lane.label }}"
-                    data-handoff="{{ ('Si - ' ~ card.handoff_area) if card.requires_handoff else 'No' }}"
+                    data-handoff="{{ ('Si - ' ~ ui_service_area_labels.get(card.handoff_area or 'none', card.handoff_area or 'Ninguna')) if card.requires_handoff else 'No' }}"
                   >
                     <div class="kanban-flow-card-top">
                       <strong>{{ card.clinic_name }}</strong>
@@ -357,10 +745,10 @@
                 <p><span>Telefono</span><strong data-modal-field="phone">-</strong></p>
                 <p><span>Etapa</span><strong data-modal-field="stage">-</strong></p>
                 <p><span>Estado</span><strong data-modal-field="status">-</strong></p>
-                <p><span>Chat ID</span><strong data-modal-field="chat">-</strong></p>
+                <p><span>ID de chat</span><strong data-modal-field="chat">-</strong></p>
                 <p><span>Ultimo cambio</span><strong data-modal-field="transition">-</strong></p>
                 <p><span>Actualizado</span><strong data-modal-field="updated">-</strong></p>
-                <p><span>Handoff</span><strong data-modal-field="handoff">-</strong></p>
+                <p><span>Escalado</span><strong data-modal-field="handoff">-</strong></p>
               </div>
             </article>
           </div>
@@ -373,61 +761,254 @@
   <script>
     lucide.createIcons();
 
-    const sampleStatus = {{ context.sample_status | tojson }};
     const topServiceAreas = {{ context.top_service_areas | tojson }};
     const analysisRows = {{ context.analysis_rows[:12] | tojson }};
+    const funnelRows = {{ context.funnel | tojson }};
+    const sampleStatus = {{ context.sample_status | tojson }};
+    const serviceAreaLabels = {{ ui_service_area_labels | tojson }};
+    const statusLabels = {{ ui_status_labels | tojson }};
 
-    function mountSampleStatus() {
-      const el = document.querySelector('#chart-sample-status');
+    function labelFromKey(value, fallback = '-') {
+      if (!value) return fallback;
+      const text = String(value).replace(/_/g, ' ').trim();
+      if (!text) return fallback;
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+
+    function labelServiceArea(value) {
+      if (!value) return 'Sin area';
+      return serviceAreaLabels[value] || labelFromKey(value, 'Sin area');
+    }
+
+    function labelStatus(value) {
+      if (!value) return '-';
+      return statusLabels[value] || labelFromKey(value, '-');
+    }
+
+    function mountLastUpdatedTime() {
+      const target = document.querySelector('#last-updated-time');
+      if (!target) return;
+      const now = new Date();
+      const formatted = now.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false });
+      target.textContent = formatted;
+    }
+
+    function mountRevenueBars() {
+      const el = document.querySelector('#chart-revenue-bars');
       if (!el) return;
-      const labels = Object.keys(sampleStatus);
-      const values = labels.map(key => sampleStatus[key]);
+
+      const hasServiceData = Array.isArray(topServiceAreas) && topServiceAreas.length > 0;
+      const labels = hasServiceData
+        ? topServiceAreas.map((item) => labelServiceArea(item.service_area || 'unknown'))
+        : (funnelRows || []).map((item) => item.label || 'Fase');
+      const values = hasServiceData
+        ? topServiceAreas.map((item) => Number(item.count || 0))
+        : (funnelRows || []).map((item) => Number(item.value || 0));
+      if (!values.length) return;
+
+      const peakValue = Math.max(...values);
+      const peakIndex = values.indexOf(peakValue);
+      const barColors = values.map((_, index) => (index === peakIndex ? '#f59e0b' : '#3f4551'));
+      const peakLabel = labels[peakIndex] || 'Pico';
+      const peakText = new Intl.NumberFormat('es-CO').format(peakValue);
+      const hasPositivePeak = peakValue > 0;
+
       new ApexCharts(el, {
-        chart: { type: 'donut', background: 'transparent', toolbar: { show: false }, height: 320 },
-        labels,
-        series: values,
+        chart: {
+          type: 'bar',
+          background: 'transparent',
+          toolbar: { show: false },
+          height: 300,
+          foreColor: '#9ba2ae',
+          dropShadow: {
+            enabled: true,
+            top: 2,
+            left: 0,
+            blur: 4,
+            color: '#000000',
+            opacity: 0.25,
+          },
+        },
+        series: [{ name: 'Volumen', data: values }],
+        xaxis: {
+          categories: labels,
+          axisBorder: { show: false },
+          labels: {
+            style: { colors: '#8f97a5', fontSize: '11px' },
+          },
+        },
+        yaxis: {
+          min: 0,
+          labels: {
+            style: { colors: '#8f97a5', fontSize: '11px' },
+          },
+        },
+        grid: {
+          borderColor: 'rgba(255, 255, 255, 0.08)',
+          strokeDashArray: 4,
+        },
+        plotOptions: {
+          bar: {
+            borderRadius: 7,
+            columnWidth: '52%',
+            distributed: true,
+          },
+        },
         dataLabels: { enabled: false },
-        legend: { position: 'bottom', labels: { colors: '#94a3b8' } },
-        stroke: { colors: ['#050d22'] },
-        colors: ['#3b82f6','#0ea5e9','#22c55e','#f59e0b','#a855f7','#ef4444','#14b8a6','#eab308'],
-        theme: { mode: 'dark' }
+        annotations: hasPositivePeak
+          ? {
+              yaxis: [
+                {
+                  y: peakValue,
+                  borderColor: 'rgba(245, 158, 11, 0.62)',
+                  strokeDashArray: 5,
+                  label: {
+                    borderColor: 'rgba(245, 158, 11, 0.82)',
+                    offsetX: 8,
+                    style: {
+                      color: '#fff5e9',
+                      background: '#1a1d24',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    },
+                    text: `${peakLabel}: ${peakText}`,
+                  },
+                },
+              ],
+            }
+          : {},
+        colors: barColors,
+        tooltip: {
+          theme: 'dark',
+          y: {
+            formatter(value) {
+              return `${new Intl.NumberFormat('es-CO').format(value)} elementos`;
+            },
+          },
+        },
       }).render();
     }
 
-    function mountServiceAreas() {
-      const el = document.querySelector('#chart-service-areas');
+    function mountTrafficLine() {
+      const el = document.querySelector('#chart-traffic-line');
       if (!el) return;
-      const labels = topServiceAreas.map(item => item.service_area);
-      const values = topServiceAreas.map(item => item.count);
+
+      let labels = [];
+      let values = [];
+
+      if (Array.isArray(analysisRows) && analysisRows.length > 0) {
+        labels = analysisRows.map((row) => row.analysis_code || row.analysis_name || 'Prueba');
+        values = analysisRows.map((row) => Number(row.active_samples || 0));
+      } else {
+        const statusKeys = Object.keys(sampleStatus || {});
+        labels = statusKeys.map((key) => labelStatus(key));
+        values = statusKeys.map((key) => Number(sampleStatus[key] || 0));
+      }
+
       new ApexCharts(el, {
-        chart: { type: 'line', background: 'transparent', toolbar: { show: false }, height: 320 },
-        series: [{ name: 'Solicitudes', data: values }],
-        xaxis: { categories: labels, labels: { style: { colors: '#94a3b8' } } },
-        yaxis: { labels: { style: { colors: '#94a3b8' } } },
-        stroke: { curve: 'smooth', width: 3 },
-        markers: { size: 4 },
-        grid: { borderColor: 'rgba(59,130,246,.2)' },
+        chart: {
+          type: 'area',
+          background: 'transparent',
+          toolbar: { show: false },
+          height: 300,
+          foreColor: '#9ba2ae',
+          dropShadow: {
+            enabled: true,
+            top: 0,
+            left: 0,
+            blur: 6,
+            color: '#f97316',
+            opacity: 0.22,
+          },
+        },
+        series: [{ name: 'Trafico', data: values }],
+        xaxis: {
+          categories: labels,
+          labels: {
+            style: { colors: '#8f97a5', fontSize: '11px' },
+            rotate: -20,
+          },
+        },
+        yaxis: {
+          labels: {
+            style: { colors: '#8f97a5', fontSize: '11px' },
+          },
+        },
+        stroke: {
+          curve: 'smooth',
+          width: 2.6,
+        },
+        fill: {
+          type: 'gradient',
+          gradient: {
+            shadeIntensity: 1,
+            opacityFrom: 0.34,
+            opacityTo: 0.04,
+            stops: [0, 90, 100],
+          },
+        },
+        markers: {
+          size: 0,
+          hover: { size: 4 },
+        },
+        grid: {
+          borderColor: 'rgba(255, 255, 255, 0.08)',
+          strokeDashArray: 4,
+        },
         dataLabels: { enabled: false },
-        colors: ['#3b82f6'],
-        theme: { mode: 'dark' }
+        colors: ['#f97316'],
+        tooltip: {
+          theme: 'dark',
+          y: {
+            formatter(value) {
+              return `${new Intl.NumberFormat('es-CO').format(value)} elementos`;
+            },
+          },
+        },
       }).render();
     }
 
     function mountAnalysisTop() {
       const el = document.querySelector('#chart-analysis-top');
       if (!el) return;
-      const labels = analysisRows.map(item => item.analysis_code || item.analysis_name);
-      const values = analysisRows.map(item => item.active_samples);
+
+      const labels = analysisRows.map((item) => item.analysis_code || item.analysis_name);
+      const values = analysisRows.map((item) => Number(item.active_samples || 0));
+
       new ApexCharts(el, {
-        chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, height: 300 },
+        chart: {
+          type: 'bar',
+          background: 'transparent',
+          toolbar: { show: false },
+          height: 300,
+          foreColor: '#9ba2ae',
+        },
         series: [{ name: 'En gestion', data: values }],
-        xaxis: { categories: labels, labels: { rotate: -35, style: { colors: '#94a3b8' } } },
-        yaxis: { labels: { style: { colors: '#94a3b8' } } },
-        plotOptions: { bar: { borderRadius: 6, columnWidth: '55%' } },
-        grid: { borderColor: 'rgba(59,130,246,.2)' },
+        xaxis: {
+          categories: labels,
+          labels: {
+            rotate: -35,
+            style: { colors: '#8f97a5', fontSize: '11px' },
+          },
+        },
+        yaxis: {
+          labels: {
+            style: { colors: '#8f97a5', fontSize: '11px' },
+          },
+        },
+        plotOptions: {
+          bar: {
+            borderRadius: 6,
+            columnWidth: '55%',
+          },
+        },
+        grid: {
+          borderColor: 'rgba(255, 255, 255, 0.08)',
+          strokeDashArray: 4,
+        },
         dataLabels: { enabled: false },
-        colors: ['#2563eb'],
-        theme: { mode: 'dark' }
+        colors: ['#fb923c'],
+        tooltip: { theme: 'dark' },
       }).render();
     }
 
@@ -445,7 +1026,7 @@
         chat: modal.querySelector('[data-modal-field="chat"]'),
         transition: modal.querySelector('[data-modal-field="transition"]'),
         updated: modal.querySelector('[data-modal-field="updated"]'),
-        handoff: modal.querySelector('[data-modal-field="handoff"]')
+        handoff: modal.querySelector('[data-modal-field="handoff"]'),
       };
 
       function openModal(button) {
@@ -479,6 +1060,114 @@
         if (event.key === 'Escape' && modal.classList.contains('open')) {
           closeModal();
         }
+      });
+    }
+
+    function mountOperationalStatusEditing() {
+      const requestControls = document.querySelectorAll('.request-status-select');
+      const sampleControls = document.querySelectorAll('.sample-status-select');
+      if (!requestControls.length && !sampleControls.length) return;
+
+      const requestApi = "{{ url_for('dashboard_update_request_status') }}";
+      const sampleApi = "{{ url_for('dashboard_update_sample_status') }}";
+
+      function setSaveStatus(row, selector, state, message) {
+        const flag = row.querySelector(selector);
+        if (!flag) return;
+        flag.classList.remove('ok', 'error', 'saving');
+        if (!state) {
+          flag.textContent = '';
+          return;
+        }
+        flag.classList.add(state);
+        flag.textContent = message;
+      }
+
+      function setControlState(control, state) {
+        control.classList.remove('is-saving', 'is-success', 'is-error');
+        if (state) {
+          control.classList.add(state);
+        }
+      }
+
+      async function persistStatus(control, config) {
+        const row = control.closest('tr');
+        if (!row) return;
+
+        const currentValue = (control.value || '').trim();
+        const previousValue = control.dataset.lastValue || '';
+        if (currentValue === previousValue) return;
+
+        const payload = config.buildPayload(control, row, currentValue);
+        if (!payload) {
+          control.value = previousValue;
+          return;
+        }
+
+        setControlState(control, 'is-saving');
+        setSaveStatus(row, config.saveSelector, 'saving', 'Guardando...');
+
+        try {
+          const response = await fetch(config.endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo guardar estado');
+          }
+
+          control.dataset.lastValue = currentValue;
+          setControlState(control, 'is-success');
+          setSaveStatus(row, config.saveSelector, 'ok', 'Estado actualizado');
+          setTimeout(() => {
+            setControlState(control, '');
+            setSaveStatus(row, config.saveSelector, '', '');
+          }, 1400);
+        } catch (error) {
+          control.value = previousValue;
+          setControlState(control, 'is-error');
+          setSaveStatus(row, config.saveSelector, 'error', 'Error al actualizar');
+          console.error(error);
+        }
+      }
+
+      requestControls.forEach((control) => {
+        control.dataset.lastValue = (control.value || '').trim();
+        control.addEventListener('change', () =>
+          persistStatus(control, {
+            endpoint: requestApi,
+            saveSelector: '[data-request-save]',
+            buildPayload(ctrl, row, status) {
+              const requestId = ctrl.dataset.requestId || row.dataset.requestId || '';
+              if (!requestId) return null;
+              return {
+                request_id: requestId,
+                status,
+              };
+            },
+          })
+        );
+      });
+
+      sampleControls.forEach((control) => {
+        control.dataset.lastValue = (control.value || '').trim();
+        control.addEventListener('change', () =>
+          persistStatus(control, {
+            endpoint: sampleApi,
+            saveSelector: '[data-sample-save]',
+            buildPayload(ctrl, _row, status) {
+              const sampleId = ctrl.dataset.sampleId || '';
+              if (!sampleId) return null;
+              return {
+                sample_id: sampleId,
+                status,
+              };
+            },
+          })
+        );
       });
     }
 
@@ -583,10 +1272,12 @@
       });
     }
 
-    mountSampleStatus();
-    mountServiceAreas();
+    mountLastUpdatedTime();
+    mountRevenueBars();
+    mountTrafficLine();
     mountAnalysisTop();
     mountFlowDetailsModal();
+    mountOperationalStatusEditing();
     mountClientInlineEditing();
   </script>
 </body>

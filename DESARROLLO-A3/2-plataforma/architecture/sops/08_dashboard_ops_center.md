@@ -15,6 +15,7 @@ Provide a single operational console for laboratory staff with secure access and
 4. Conversaciones LiveConnect (estado, resumen, ultimos mensajes).
 5. Seguimiento de solicitudes y muestras.
 6. Catalogo de analisis y valores.
+7. Gestion manual de estado en Solicitudes y Muestras con trazabilidad de eventos.
 
 ## Operational KPIs
 - Total clients.
