@@ -20,6 +20,96 @@ Endpoint: `POST /webhooks/liveconnect`
 }
 ```
 
+## Dashboard Clients Payload (V1.4)
+
+Endpoint: `GET /api/dashboard/overview`
+
+Campos agregados para perfil comercial/facturacion y asignacion manual de motorizado:
+
+```json
+{
+  "summary": {
+    "clients_with_profile": 182,
+    "new_clients_indexed": 39
+  },
+  "clients_rows": [
+    {
+      "client_id": "uuid-client",
+      "clinic_key": "clinica-demo",
+      "display_name": "Clinica Demo Norte",
+      "secondary_name": "Clinica Demo",
+      "client_code": "A3-1022",
+      "client_type": "empresa",
+      "clinic_name": "Clinica Demo",
+      "tax_id": "900123456",
+      "phone": "3001234567",
+      "email": "contacto@clinicademo.com",
+      "billing_email": "facturas@clinicademo.com",
+      "vat_regime": "responsable_iva",
+      "electronic_invoicing": true,
+      "invoicing_rut_url": "https://.../rut.pdf",
+      "registration_timestamp": "2026-04-14T10:22:00",
+      "registration_date": "2026-04-14",
+      "registration_time": "10:22",
+      "observations": "Cliente activo con FE mensual",
+      "entered_flag": true,
+      "assigned_courier_id": "uuid-courier",
+      "courier_name": "Carlos Rios",
+      "client_status": "Activo",
+      "requests_count": 7,
+      "samples_count": 4,
+      "latest_request_status": "assigned",
+      "latest_sample_status": "in_analysis"
+    }
+  ]
+}
+```
+
+### Fallback Rules (clients)
+
+- Si `clients_a3_knowledge` o `clients_a3_professionals` no estan disponibles, el dashboard debe cargar con datos de `clients`.
+- El cruce de datos se hace por `clinic_key` normalizado y fallback por telefono/nombre.
+- Nunca bloquear la carga de `/dashboard` o `/clientes` por ausencia de tablas de integracion.
+
+## Dashboard Editable Endpoints (V1.4)
+
+### Update profile field
+
+Endpoint: `POST /api/dashboard/client-profile`
+
+```json
+{
+  "clinic_key": "clinica-demo",
+  "clinic_name": "Clinica Demo",
+  "field": "electronic_invoicing",
+  "value": "si"
+}
+```
+
+Allowed `field` values:
+- `client_code`
+- `commercial_name`
+- `client_type` (`es_persona`, `empresa`, `otro`, empty)
+- `billing_email`
+- `vat_regime` (`no_responsable_iva`, `responsable_iva`, empty)
+- `electronic_invoicing` (`si`, `no`, empty)
+- `invoicing_rut_url`
+- `observations`
+- `entered_flag` (`si`, `no`, empty)
+
+### Update courier assignment
+
+Endpoint: `POST /api/dashboard/client-assignment`
+
+```json
+{
+  "client_id": "uuid-client",
+  "courier_id": "uuid-courier"
+}
+```
+
+- `courier_id` empty (`""`) clears current assignment.
+
 ## Anarvet Result Sync Payload
 
 Endpoint: `POST /webhooks/anarvet/result`

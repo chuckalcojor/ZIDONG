@@ -11,9 +11,10 @@ Provide a single operational console for laboratory staff with secure access and
 ## Core Sections
 1. Funnel operativo (received -> assigned -> on_route -> in_lab -> processed -> sent).
 2. Clientes y mensajero asignado (coverage + gaps).
-3. Conversaciones LiveConnect (estado, resumen, ultimos mensajes).
-4. Seguimiento de solicitudes y muestras.
-5. Catalogo de analisis y valores.
+3. Edicion inline de perfil comercial/facturacion (campos Si/No y catalogos).
+4. Conversaciones LiveConnect (estado, resumen, ultimos mensajes).
+5. Seguimiento de solicitudes y muestras.
+6. Catalogo de analisis y valores.
 
 ## Operational KPIs
 - Total clients.

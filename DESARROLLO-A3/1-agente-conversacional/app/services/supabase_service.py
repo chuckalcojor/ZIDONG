@@ -195,11 +195,79 @@ class SupabaseService:
 
     def list_clients_with_assignment(self) -> list[dict[str, Any]]:
         params = {
-            "select": "id,clinic_name,phone,address,zone,billing_type,is_active,client_courier_assignment(courier_id,couriers(id,name,phone,availability))",
+            "select": "id,external_code,clinic_name,tax_id,phone,address,city,zone,billing_type,is_active,created_at,client_courier_assignment(courier_id,couriers(id,name,phone,availability))",
             "order": "clinic_name.asc",
             "limit": "2000",
         }
         return self.fetch_rows("clients", params)
+
+    def list_a3_knowledge_index(self, limit: int = 5000) -> list[dict[str, Any]]:
+        params = {
+            "select": "clinic_key,clinic_name,is_registered,is_new_client,address,locality,phone,email,payment_policy,result_delivery_mode,client_code,commercial_name,client_type,billing_email,vat_regime,electronic_invoicing,invoicing_rut_url,registration_timestamp,registration_date,registration_time,observations,entered_flag,sources_json,source_updated_at,synced_at",
+            "order": "clinic_name.asc",
+            "limit": str(limit),
+        }
+        try:
+            return self.fetch_rows("clients_a3_knowledge", params)
+        except httpx.HTTPStatusError:
+            legacy_params = {
+                "select": "clinic_key,clinic_name,is_registered,is_new_client,address,locality,phone,email,payment_policy,result_delivery_mode,sources_json,source_updated_at,synced_at",
+                "order": "clinic_name.asc",
+                "limit": str(limit),
+            }
+            return self.fetch_rows("clients_a3_knowledge", legacy_params)
+
+    def list_active_couriers(self, limit: int = 2000) -> list[dict[str, Any]]:
+        params = {
+            "select": "id,name,phone,availability,is_active",
+            "is_active": "eq.true",
+            "order": "name.asc",
+            "limit": str(limit),
+        }
+        return self.fetch_rows("couriers", params)
+
+    def upsert_client_profile(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        return self.insert_rows(
+            "clients_a3_knowledge",
+            [payload],
+            upsert=True,
+            on_conflict="clinic_key",
+        )
+
+    def upsert_client_assignment(
+        self,
+        *,
+        client_id: str,
+        courier_id: str | None,
+        assigned_by: str = "dashboard_manual",
+    ) -> None:
+        if courier_id:
+            self.insert_rows(
+                "client_courier_assignment",
+                [
+                    {
+                        "client_id": client_id,
+                        "courier_id": courier_id,
+                        "assigned_by": assigned_by,
+                    }
+                ],
+                upsert=True,
+                on_conflict="client_id",
+            )
+            return
+
+        self.delete_rows(
+            "client_courier_assignment",
+            {"client_id": f"eq.{client_id}"},
+        )
+
+    def list_a3_professionals_index(self, limit: int = 8000) -> list[dict[str, Any]]:
+        params = {
+            "select": "clinic_key,professional_name,professional_card,source_sheet,synced_at",
+            "order": "synced_at.desc",
+            "limit": str(limit),
+        }
+        return self.fetch_rows("clients_a3_professionals", params)
 
     def list_requests(self, limit: int = 2000) -> list[dict[str, Any]]:
         params = {

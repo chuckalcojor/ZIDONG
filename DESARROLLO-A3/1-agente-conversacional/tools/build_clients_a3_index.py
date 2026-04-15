@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import sqlite3
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,67 @@ def first_non_empty(*values: Any) -> str:
         if clean_text(value):
             return clean_text(value)
     return ""
+
+
+def normalize_bool_option(value: Any) -> str:
+    normalized = normalize_key(value)
+    if not normalized:
+        return ""
+    yes_values = {"si", "s", "yes", "true", "1", "ok", "x", "registrado", "ingresado"}
+    no_values = {"no", "n", "false", "0", "pendiente"}
+    if normalized in yes_values:
+        return "si"
+    if normalized in no_values:
+        return "no"
+    return ""
+
+
+def normalize_client_type_option(value: Any) -> str:
+    normalized = normalize_key(value)
+    if not normalized:
+        return ""
+    if "persona" in normalized:
+        return "es_persona"
+    if "empresa" in normalized:
+        return "empresa"
+    if "otro" in normalized:
+        return "otro"
+    return ""
+
+
+def normalize_vat_regime_option(value: Any) -> str:
+    normalized = normalize_key(value)
+    if not normalized:
+        return ""
+    if "no" in normalized and "responsable" in normalized:
+        return "no_responsable_iva"
+    if "responsable" in normalized:
+        return "responsable_iva"
+    return ""
+
+
+def normalize_timestamp_value(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return datetime.combine(value, time.min).isoformat()
+    return clean_text(value)
+
+
+def normalize_date_value(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return clean_text(value)
+
+
+def normalize_time_value(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.time().isoformat(timespec="minutes")
+    if isinstance(value, time):
+        return value.isoformat(timespec="minutes")
+    return clean_text(value)
 
 
 def get_header_map(sheet) -> dict[str, int]:
@@ -98,6 +160,18 @@ def create_schema(conn: sqlite3.Connection) -> None:
             email text,
             payment_policy text,
             result_delivery_mode text,
+            client_code text,
+            commercial_name text,
+            client_type text,
+            billing_email text,
+            vat_regime text,
+            electronic_invoicing text,
+            invoicing_rut_url text,
+            registration_timestamp text,
+            registration_date text,
+            registration_time text,
+            observations text,
+            entered_flag text,
             sources_json text not null
         );
 
@@ -145,6 +219,18 @@ def upsert_clinic(
     email: str = "",
     payment_policy: str = "",
     result_delivery_mode: str = "",
+    client_code: str = "",
+    commercial_name: str = "",
+    client_type: str = "",
+    billing_email: str = "",
+    vat_regime: str = "",
+    electronic_invoicing: str = "",
+    invoicing_rut_url: str = "",
+    registration_timestamp: str = "",
+    registration_date: str = "",
+    registration_time: str = "",
+    observations: str = "",
+    entered_flag: str = "",
 ) -> str:
     clinic_key = normalize_key(clinic_name)
     if not clinic_key:
@@ -163,6 +249,18 @@ def upsert_clinic(
             "email": "",
             "payment_policy": "",
             "result_delivery_mode": "",
+            "client_code": "",
+            "commercial_name": "",
+            "client_type": "",
+            "billing_email": "",
+            "vat_regime": "",
+            "electronic_invoicing": "",
+            "invoicing_rut_url": "",
+            "registration_timestamp": "",
+            "registration_date": "",
+            "registration_time": "",
+            "observations": "",
+            "entered_flag": "",
             "sources": set(),
         },
     )
@@ -179,6 +277,24 @@ def upsert_clinic(
     base["email"] = first_non_empty(base["email"], email)
     base["payment_policy"] = first_non_empty(base["payment_policy"], payment_policy)
     base["result_delivery_mode"] = first_non_empty(base["result_delivery_mode"], result_delivery_mode)
+    base["client_code"] = first_non_empty(base["client_code"], client_code)
+    base["commercial_name"] = first_non_empty(base["commercial_name"], commercial_name)
+    base["client_type"] = first_non_empty(base["client_type"], client_type)
+    base["billing_email"] = first_non_empty(base["billing_email"], billing_email)
+    base["vat_regime"] = first_non_empty(base["vat_regime"], vat_regime)
+    base["electronic_invoicing"] = first_non_empty(
+        base["electronic_invoicing"],
+        electronic_invoicing,
+    )
+    base["invoicing_rut_url"] = first_non_empty(base["invoicing_rut_url"], invoicing_rut_url)
+    base["registration_timestamp"] = first_non_empty(
+        base["registration_timestamp"],
+        registration_timestamp,
+    )
+    base["registration_date"] = first_non_empty(base["registration_date"], registration_date)
+    base["registration_time"] = first_non_empty(base["registration_time"], registration_time)
+    base["observations"] = first_non_empty(base["observations"], observations)
+    base["entered_flag"] = first_non_empty(base["entered_flag"], entered_flag)
     base["sources"].add(source_sheet)
 
     return clinic_key
@@ -202,13 +318,18 @@ def main() -> None:
 
     conn = sqlite3.connect(sqlite_path)
     conn.row_factory = sqlite3.Row
-    create_schema(conn)
 
-    conn.execute("delete from meta")
-    conn.execute("delete from sheet_profile")
-    conn.execute("delete from clinic_master")
-    conn.execute("delete from clinic_professional")
-    conn.execute("delete from sample_status_event")
+    conn.executescript(
+        """
+        drop table if exists clinic_professional;
+        drop table if exists sample_status_event;
+        drop table if exists clinic_master;
+        drop table if exists sheet_profile;
+        drop table if exists meta;
+        """
+    )
+
+    create_schema(conn)
 
     clinics: dict[str, dict[str, Any]] = {}
     professionals: list[tuple[str, str, str, str]] = []
@@ -236,6 +357,10 @@ def main() -> None:
                 clinic_name=clinic_name,
                 source_sheet="Clientes",
                 is_registered=True,
+                client_code=first_non_empty(
+                    get_cell(row, hmap.get(normalize_key("C"))),
+                    get_cell(row, hmap.get(normalize_key("kp"))),
+                ),
                 phone=get_cell(row, hmap.get(normalize_key("celular"))),
                 email=get_cell(row, hmap.get(normalize_key("Correo"))),
                 payment_policy=get_cell(row, hmap.get(normalize_key("Pago"))),
@@ -260,10 +385,15 @@ def main() -> None:
                 clinic_name=clinic_name,
                 source_sheet="Copia de Clientes",
                 is_registered=True,
+                client_code=first_non_empty(
+                    get_cell(row, hmap.get(normalize_key("C"))),
+                    get_cell(row, hmap.get(normalize_key("kp"))),
+                ),
                 phone=get_cell(row, hmap.get(normalize_key("celular"))),
                 email=get_cell(row, hmap.get(normalize_key("Correo"))),
                 payment_policy=get_cell(row, hmap.get(normalize_key("Pago"))),
                 result_delivery_mode=get_cell(row, hmap.get(normalize_key("Medio de envio de examenes"))),
+                observations=get_cell(row, hmap.get(normalize_key("Observaciones"))),
             )
             professional_name = get_cell(row, hmap.get(normalize_key("Medico veterinario")))
             professional_card = get_cell(row, hmap.get(normalize_key("N TP")))
@@ -307,10 +437,32 @@ def main() -> None:
                 clinic_name=clinic_name,
                 source_sheet="Nuevos",
                 is_new_client=True,
+                client_code=get_cell(row, hmap.get(normalize_key("Codigo"))),
+                commercial_name=get_cell(row, hmap.get(normalize_key("Nombre Comercial"))),
+                client_type=normalize_client_type_option(
+                    get_cell(row, hmap.get(normalize_key("Tipo")))
+                ),
                 address=get_cell(row, hmap.get(normalize_key("Direccion y ubicacion en Google Maps"))),
                 locality=get_cell(row, hmap.get(normalize_key("Barrio y Localidad"))),
                 phone=get_cell(row, hmap.get(normalize_key("N Celular"))),
                 email=get_cell(row, hmap.get(normalize_key("Email"))),
+                billing_email=get_cell(
+                    row,
+                    hmap.get(normalize_key("Correo (En el cual te llegaran las facturas)")),
+                ),
+                vat_regime=normalize_vat_regime_option(
+                    get_cell(row, hmap.get(normalize_key("Tipo de regimen IVA")))
+                ),
+                invoicing_rut_url=get_cell(row, hmap.get(normalize_key("Informacion en RUT"))),
+                registration_timestamp=normalize_timestamp_value(
+                    row[hmap.get(normalize_key("Marca temporal"))]
+                    if hmap.get(normalize_key("Marca temporal")) is not None
+                    and hmap.get(normalize_key("Marca temporal")) < len(row)
+                    else ""
+                ),
+                entered_flag=normalize_bool_option(
+                    get_cell(row, hmap.get(normalize_key("Registrado")))
+                ),
             )
             professional_name = get_cell(row, hmap.get(normalize_key("Medico Veterinario")))
             professional_card = get_cell(row, hmap.get(normalize_key("N Tarjeta Profesional")))
@@ -334,7 +486,22 @@ def main() -> None:
                 address=get_cell(row, hmap.get(normalize_key("Direccion, Barrio y Localidad"))),
                 phone=get_cell(row, hmap.get(normalize_key("N Celular de comunicacion"))),
                 email=get_cell(row, hmap.get(normalize_key("Correo o WhatsApp"))),
+                billing_email=get_cell(row, hmap.get(normalize_key("Correo o WhatsApp"))),
                 result_delivery_mode=get_cell(row, hmap.get(normalize_key("Medio por el cual requiere que se envio los resultados."))),
+                electronic_invoicing=normalize_bool_option(
+                    get_cell(row, hmap.get(normalize_key("Facturacion Electronica")))
+                ),
+                invoicing_rut_url=get_cell(
+                    row,
+                    hmap.get(normalize_key("Si deseas factura electronica adjuntar el Rut")),
+                ),
+                registration_timestamp=normalize_timestamp_value(
+                    row[hmap.get(normalize_key("Marca temporal"))]
+                    if hmap.get(normalize_key("Marca temporal")) is not None
+                    and hmap.get(normalize_key("Marca temporal")) < len(row)
+                    else ""
+                ),
+                observations=get_cell(row, hmap.get(normalize_key("Observaciones"))),
             )
             professional_name = get_cell(row, hmap.get(normalize_key("Nombre completo del medico")))
             professional_card = get_cell(row, hmap.get(normalize_key("N Tarjeta profesional")))
@@ -358,7 +525,47 @@ def main() -> None:
                 address=get_cell(row, hmap.get(normalize_key("Direccion"))),
                 locality=get_cell(row, hmap.get(normalize_key("Barrio y localidad"))),
                 phone=get_cell(row, hmap.get(normalize_key("Celular o Telefono"))),
+                registration_date=normalize_date_value(
+                    row[hmap.get(normalize_key("Fecha"))]
+                    if hmap.get(normalize_key("Fecha")) is not None
+                    and hmap.get(normalize_key("Fecha")) < len(row)
+                    else ""
+                ),
+                registration_time=normalize_time_value(
+                    row[hmap.get(normalize_key("Hora"))]
+                    if hmap.get(normalize_key("Hora")) is not None
+                    and hmap.get(normalize_key("Hora")) < len(row)
+                    else ""
+                ),
+                observations=get_cell(
+                    row,
+                    hmap.get(normalize_key("Informacion suministrada")),
+                ),
             )
+
+    if "Medios Veterinarios" in wb.sheetnames:
+        ws = wb["Medios Veterinarios"]
+        hmap = get_header_map(ws)
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row_has_data(row):
+                continue
+            clinic_name = get_cell(row, hmap.get(normalize_key("Nombre de la veterinaria")))
+            if not clinic_name:
+                continue
+            clinic_key = upsert_clinic(
+                clinics,
+                clinic_name=clinic_name,
+                source_sheet="Medios Veterinarios",
+                is_registered=True,
+                client_code=get_cell(row, hmap.get(normalize_key("Codigo Annar"))),
+                entered_flag=normalize_bool_option(
+                    get_cell(row, hmap.get(normalize_key("Ingresado")))
+                ),
+            )
+            professional_name = get_cell(row, hmap.get(normalize_key("Nombre de medico veterinario")))
+            professional_card = get_cell(row, hmap.get(normalize_key("N Tarjeta profesional")))
+            if clinic_key and (professional_name or professional_card):
+                professionals.append((clinic_key, professional_name, professional_card, "Medios Veterinarios"))
 
     if "Remisiones" in wb.sheetnames:
         ws = wb["Remisiones"]
@@ -422,8 +629,20 @@ def main() -> None:
                 email,
                 payment_policy,
                 result_delivery_mode,
+                client_code,
+                commercial_name,
+                client_type,
+                billing_email,
+                vat_regime,
+                electronic_invoicing,
+                invoicing_rut_url,
+                registration_timestamp,
+                registration_date,
+                registration_time,
+                observations,
+                entered_flag,
                 sources_json
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 clinic["clinic_key"],
@@ -436,6 +655,18 @@ def main() -> None:
                 clinic["email"],
                 clinic["payment_policy"],
                 clinic["result_delivery_mode"],
+                clinic["client_code"],
+                clinic["commercial_name"],
+                clinic["client_type"],
+                clinic["billing_email"],
+                clinic["vat_regime"],
+                clinic["electronic_invoicing"],
+                clinic["invoicing_rut_url"],
+                clinic["registration_timestamp"],
+                clinic["registration_date"],
+                clinic["registration_time"],
+                clinic["observations"],
+                clinic["entered_flag"],
                 json.dumps(sorted(clinic["sources"]), ensure_ascii=True),
             ),
         )

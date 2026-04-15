@@ -228,6 +228,12 @@
   font-size: 13px;
 }
 
+.section-note-warn {
+  margin-top: 8px;
+  color: #fbbf24;
+  font-size: 12px;
+}
+
 .kpi-grid {
   display: grid;
   gap: 10px;
@@ -298,6 +304,10 @@ table {
   font-size: 13px;
 }
 
+.table-clients {
+  min-width: 3200px;
+}
+
 th,
 td {
   padding: 10px 12px;
@@ -318,6 +328,95 @@ th {
 
 tbody tr:hover {
   background: rgba(31, 62, 129, 0.22);
+}
+
+.cell-client-name {
+  min-width: 250px;
+}
+
+.cell-client-name strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.cell-client-name span {
+  display: block;
+  margin-top: 4px;
+  color: #8ea4c7;
+  font-size: 11px;
+}
+
+.text-dim {
+  color: #7f95b7;
+}
+
+.save-flag {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  min-height: 12px;
+}
+
+.save-flag.saving {
+  color: #bfdbfe;
+}
+
+.save-flag.ok {
+  color: #86efac;
+}
+
+.save-flag.error {
+  color: #fca5a5;
+}
+
+.cell-input,
+.cell-select {
+  width: 100%;
+  min-width: 160px;
+  border: 1px solid rgba(76, 116, 192, 0.45);
+  background: rgba(8, 16, 36, 0.84);
+  color: #dbe7ff;
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 12px;
+  outline: none;
+}
+
+.cell-input::placeholder {
+  color: #7f95b7;
+}
+
+.cell-input-compact {
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.cell-input:focus,
+.cell-select:focus {
+  border-color: rgba(96, 165, 250, 0.85);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+
+.cell-input.is-saving,
+.cell-select.is-saving {
+  border-color: rgba(125, 211, 252, 0.85);
+}
+
+.cell-input.is-success,
+.cell-select.is-success {
+  border-color: rgba(110, 231, 183, 0.9);
+}
+
+.cell-input.is-error,
+.cell-select.is-error {
+  border-color: rgba(248, 113, 113, 0.9);
+}
+
+.cell-select:disabled,
+.cell-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .status-badge {

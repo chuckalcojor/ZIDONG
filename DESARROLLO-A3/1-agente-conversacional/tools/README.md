@@ -54,11 +54,13 @@ Import manual route assignments workbook:
 py tools/import_route_assignments_excel.py --excel "C:\Users\gasto\Downloads\A3 VETERINARIA.xlsx"
 ```
 
-Sync to Supabase (after applying `3-conexiones/architecture/sql/006_clients_a3_knowledge_index.sql`):
+Sync to Supabase (after applying `3-conexiones/architecture/sql/006_clients_a3_knowledge_index.sql` and `3-conexiones/architecture/sql/007_clients_dashboard_profile_fields.sql`):
 
 ```bash
 py tools/sync_clients_a3_index_to_supabase.py
 ```
+
+Note: sync script auto-detects available columns in `clients_a3_knowledge` and degrades gracefully to legacy schema when migration 007 is pending.
 
 Run conversational benchmark:
 

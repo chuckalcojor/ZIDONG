@@ -87,24 +87,109 @@
         {% if active_tab == 'clientes' %}
         <section class="section-head">
           <h1>Clientes</h1>
-          <p>Datos completos del cliente, asignacion y estado operativo.</p>
+          <p>Perfil comercial, facturacion y asignacion manual de motorizado.</p>
+          {% if context.knowledge_profile_compat_mode %}
+          <p class="section-note-warn">Modo compatibilidad activo: perfil avanzado guardado en esquema legacy hasta aplicar migracion SQL 007 en Supabase.</p>
+          {% endif %}
         </section>
         <section class="table-shell">
           <div class="table-wrap">
-            <table>
+            <table class="table-clients">
               <thead>
                 <tr>
-                  <th>Cliente</th><th>Telefono</th><th>Direccion</th><th>Zona</th><th>Mensajero</th><th>Solicitudes</th><th>Muestras</th><th>Estado Solicitud</th><th>Estado Muestra</th>
+                  <th>Nombre comercial / Veterinaria</th>
+                  <th>Codigo cliente</th>
+                  <th>Tipo</th>
+                  <th>NIT</th>
+                  <th>Telefono</th>
+                  <th>Correo contacto</th>
+                  <th>Correo facturacion</th>
+                  <th>Regimen IVA</th>
+                  <th>Facturacion electronica</th>
+                  <th>Adjuntar RUT FE</th>
+                  <th>Marca temporal</th>
+                  <th>Fecha</th>
+                  <th>Hora</th>
+                  <th>Observaciones</th>
+                  <th>Ingresado</th>
+                  <th>Motorizado asignado</th>
+                  <th>Estado Cliente</th>
+                  <th>Solicitudes</th>
+                  <th>Muestras</th>
+                  <th>Estado Solicitud</th>
+                  <th>Estado Muestra</th>
                 </tr>
               </thead>
               <tbody>
                 {% for row in context.clients_rows %}
-                <tr>
-                  <td>{{ row.clinic_name }}</td>
+                <tr data-client-id="{{ row.client_id }}" data-clinic-key="{{ row.clinic_key }}" data-clinic-name="{{ row.clinic_name }}">
+                  <td class="cell-client-name">
+                    <strong>{{ row.display_name }}</strong>
+                    {% if row.secondary_name and row.secondary_name != '-' %}
+                    <span>{{ row.secondary_name }}</span>
+                    {% else %}
+                    <span class="text-dim">Sin alias comercial</span>
+                    {% endif %}
+                    <input class="cell-input cell-input-compact client-edit-input" data-kind="profile" data-field="commercial_name" type="text" value="{{ '' if row.commercial_name == '-' else row.commercial_name }}" placeholder="Editar nombre comercial">
+                    <small class="save-flag" data-row-save></small>
+                  </td>
+                  <td>
+                    <input class="cell-input client-edit-input" data-kind="profile" data-field="client_code" type="text" value="{{ '' if row.client_code == '-' else row.client_code }}" placeholder="Codigo">
+                  </td>
+                  <td>
+                    <select class="cell-select client-edit-select" data-kind="profile" data-field="client_type">
+                      <option value="">Sin dato</option>
+                      {% for option_value, option_label in context.client_type_options.items() %}
+                      <option value="{{ option_value }}" {{ 'selected' if row.client_type == option_value else '' }}>{{ option_label }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td>{{ row.tax_id }}</td>
                   <td>{{ row.phone }}</td>
-                  <td>{{ row.address }}</td>
-                  <td>{{ row.zone }}</td>
-                  <td>{{ row.courier_name }}</td>
+                  <td>{{ row.email }}</td>
+                  <td>
+                    <input class="cell-input client-edit-input" data-kind="profile" data-field="billing_email" type="text" value="{{ '' if row.billing_email == '-' else row.billing_email }}" placeholder="correo@facturas.com">
+                  </td>
+                  <td>
+                    <select class="cell-select client-edit-select" data-kind="profile" data-field="vat_regime">
+                      <option value="">Sin dato</option>
+                      {% for option_value, option_label in context.vat_regime_options.items() %}
+                      <option value="{{ option_value }}" {{ 'selected' if row.vat_regime == option_value else '' }}>{{ option_label }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td>
+                    <select class="cell-select client-edit-select" data-kind="profile" data-field="electronic_invoicing">
+                      <option value="">Sin dato</option>
+                      <option value="si" {{ 'selected' if row.electronic_invoicing_option == 'si' else '' }}>Si</option>
+                      <option value="no" {{ 'selected' if row.electronic_invoicing_option == 'no' else '' }}>No</option>
+                    </select>
+                  </td>
+                  <td>
+                    <input class="cell-input client-edit-input" data-kind="profile" data-field="invoicing_rut_url" type="text" value="{{ '' if row.invoicing_rut_url == '-' else row.invoicing_rut_url }}" placeholder="URL o referencia RUT">
+                  </td>
+                  <td>{{ row.registration_timestamp[:16] if row.registration_timestamp and row.registration_timestamp != '-' else '-' }}</td>
+                  <td>{{ row.registration_date }}</td>
+                  <td>{{ row.registration_time[:5] if row.registration_time and row.registration_time != '-' else '-' }}</td>
+                  <td>
+                    <input class="cell-input client-edit-input" data-kind="profile" data-field="observations" type="text" value="{{ '' if row.observations == '-' else row.observations }}" placeholder="Observaciones">
+                  </td>
+                  <td>
+                    <select class="cell-select client-edit-select" data-kind="profile" data-field="entered_flag">
+                      <option value="">Sin dato</option>
+                      <option value="si" {{ 'selected' if row.entered_flag_option == 'si' else '' }}>Si</option>
+                      <option value="no" {{ 'selected' if row.entered_flag_option == 'no' else '' }}>No</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select class="cell-select client-edit-select" data-kind="assignment" data-field="assigned_courier_id" {{ 'disabled' if not row.client_id else '' }}>
+                      <option value="">Sin asignar</option>
+                      {% for courier in context.couriers_options %}
+                      <option value="{{ courier.id }}" {{ 'selected' if row.assigned_courier_id == courier.id else '' }}>{{ courier.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td><span class="status-badge">{{ row.client_status }}</span></td>
                   <td>{{ row.requests_count }}</td>
                   <td>{{ row.samples_count }}</td>
                   <td><span class="status-badge">{{ row.latest_request_status }}</span></td>
@@ -397,10 +482,112 @@
       });
     }
 
+    function mountClientInlineEditing() {
+      const table = document.querySelector('.table-clients');
+      if (!table) return;
+
+      const apiProfile = "{{ url_for('dashboard_update_client_profile') }}";
+      const apiAssignment = "{{ url_for('dashboard_update_client_assignment') }}";
+
+      function setRowStatus(row, state, message) {
+        const flag = row.querySelector('[data-row-save]');
+        if (!flag) return;
+        flag.classList.remove('ok', 'error', 'saving');
+        if (!state) {
+          flag.textContent = '';
+          return;
+        }
+        flag.classList.add(state);
+        flag.textContent = message;
+      }
+
+      function setControlState(control, state) {
+        control.classList.remove('is-saving', 'is-success', 'is-error');
+        if (state) {
+          control.classList.add(state);
+        }
+      }
+
+      async function persistControl(control) {
+        const row = control.closest('tr');
+        if (!row) return;
+
+        const kind = control.dataset.kind || '';
+        const field = control.dataset.field || '';
+        const currentValue = (control.value || '').trim();
+        const previousValue = control.dataset.lastValue || '';
+        if (currentValue === previousValue) return;
+
+        setControlState(control, 'is-saving');
+        setRowStatus(row, 'saving', 'Guardando...');
+
+        let endpoint = apiProfile;
+        let body = {
+          client_id: row.dataset.clientId || '',
+          clinic_key: row.dataset.clinicKey || '',
+          clinic_name: row.dataset.clinicName || '',
+          field,
+          value: currentValue,
+        };
+
+        if (kind === 'assignment') {
+          endpoint = apiAssignment;
+          body = {
+            client_id: row.dataset.clientId || '',
+            courier_id: currentValue,
+          };
+        }
+
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo guardar');
+          }
+
+          control.dataset.lastValue = currentValue;
+          setControlState(control, 'is-success');
+          setRowStatus(row, 'ok', 'Guardado');
+          setTimeout(() => {
+            setControlState(control, '');
+            setRowStatus(row, '', '');
+          }, 1400);
+        } catch (error) {
+          setControlState(control, 'is-error');
+          setRowStatus(row, 'error', 'Error al guardar');
+          console.error(error);
+        }
+      }
+
+      table.querySelectorAll('.client-edit-select, .client-edit-input').forEach((control) => {
+        control.dataset.lastValue = (control.value || '').trim();
+      });
+
+      table.querySelectorAll('.client-edit-select').forEach((control) => {
+        control.addEventListener('change', () => persistControl(control));
+      });
+
+      table.querySelectorAll('.client-edit-input').forEach((control) => {
+        control.addEventListener('blur', () => persistControl(control));
+        control.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            control.blur();
+          }
+        });
+      });
+    }
+
     mountSampleStatus();
     mountServiceAreas();
     mountAnalysisTop();
     mountFlowDetailsModal();
+    mountClientInlineEditing();
   </script>
 </body>
 </html>

@@ -51,6 +51,25 @@ def chunks(items: list[dict[str, Any]], size: int = 100) -> list[list[dict[str, 
     return [items[idx : idx + size] for idx in range(0, len(items), size)]
 
 
+def to_optional_bool(value: Any) -> bool | None:
+    normalized = normalize_key(value)
+    if not normalized:
+        return None
+    if normalized in {"si", "s", "yes", "true", "1", "ok", "x", "registrado", "ingresado"}:
+        return True
+    if normalized in {"no", "n", "false", "0", "pendiente"}:
+        return False
+    return None
+
+
+def bool_to_option(value: bool | None) -> str:
+    if value is True:
+        return "si"
+    if value is False:
+        return "no"
+    return ""
+
+
 def build_event_key(row: dict[str, Any]) -> str:
     seed = "|".join(
         [
@@ -68,6 +87,43 @@ def build_event_key(row: dict[str, Any]) -> str:
         ]
     )
     return hashlib.sha1(seed.encode("utf-8")).hexdigest()
+
+
+def fetch_table_columns(
+    *,
+    base_url: str,
+    service_role_key: str,
+    table_name: str,
+) -> set[str]:
+    headers = {
+        "apikey": service_role_key,
+        "Authorization": f"Bearer {service_role_key}",
+        "Accept": "application/openapi+json",
+    }
+    try:
+        response = httpx.get(
+            f"{base_url.rstrip('/')}/rest/v1/",
+            headers=headers,
+            timeout=60.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return set()
+
+    definitions = payload.get("definitions") if isinstance(payload, dict) else {}
+    if not isinstance(definitions, dict):
+        return set()
+
+    table_schema = definitions.get(table_name)
+    if not isinstance(table_schema, dict):
+        return set()
+
+    properties = table_schema.get("properties")
+    if not isinstance(properties, dict):
+        return set()
+
+    return {str(name) for name in properties.keys()}
 
 
 def main() -> None:
@@ -93,7 +149,10 @@ def main() -> None:
         for row in conn.execute(
             """
             select clinic_key, clinic_name, is_registered, is_new_client, address, locality,
-                   phone, email, payment_policy, result_delivery_mode, sources_json
+                   phone, email, payment_policy, result_delivery_mode, sources_json,
+                   client_code, commercial_name, client_type, billing_email, vat_regime,
+                   electronic_invoicing, invoicing_rut_url, registration_timestamp,
+                   registration_date, registration_time, observations, entered_flag
             from clinic_master
             """
         ).fetchall()
@@ -132,7 +191,7 @@ def main() -> None:
         print(
             json.dumps(
                 {
-                    "error": "Supabase table clients_a3_knowledge not found. Apply SQL migration 006_clients_a3_knowledge_index.sql first.",
+                    "error": "Supabase table clients_a3_knowledge not found. Apply SQL migrations 006_clients_a3_knowledge_index.sql and 007_clients_dashboard_profile_fields.sql first.",
                     "status_code": exc.response.status_code,
                 },
                 ensure_ascii=True,
@@ -140,24 +199,76 @@ def main() -> None:
         )
         return
 
+    knowledge_supported_columns = fetch_table_columns(
+        base_url=settings.supabase_url,
+        service_role_key=settings.supabase_service_role_key,
+        table_name="clients_a3_knowledge",
+    )
+    knowledge_extended_profile_enabled = "billing_email" in knowledge_supported_columns
+
     clinic_rows = []
     for row in clinics:
-        clinic_rows.append(
-            {
-                "clinic_key": row.get("clinic_key"),
-                "clinic_name": row.get("clinic_name"),
-                "is_registered": bool(row.get("is_registered")),
-                "is_new_client": bool(row.get("is_new_client")),
-                "address": row.get("address") or None,
-                "locality": row.get("locality") or None,
-                "phone": row.get("phone") or None,
-                "email": row.get("email") or None,
-                "payment_policy": row.get("payment_policy") or None,
-                "result_delivery_mode": row.get("result_delivery_mode") or None,
-                "sources_json": json.loads(row.get("sources_json") or "[]"),
-                "source_excel": source_excel_value or None,
+        full_row = {
+            "clinic_key": row.get("clinic_key"),
+            "clinic_name": row.get("clinic_name"),
+            "is_registered": bool(row.get("is_registered")),
+            "is_new_client": bool(row.get("is_new_client")),
+            "address": row.get("address") or None,
+            "locality": row.get("locality") or None,
+            "phone": row.get("phone") or None,
+            "email": row.get("email") or None,
+            "payment_policy": row.get("payment_policy") or None,
+            "result_delivery_mode": row.get("result_delivery_mode") or None,
+            "client_code": row.get("client_code") or None,
+            "commercial_name": row.get("commercial_name") or None,
+            "client_type": row.get("client_type") or None,
+            "billing_email": row.get("billing_email") or None,
+            "vat_regime": row.get("vat_regime") or None,
+            "electronic_invoicing": to_optional_bool(row.get("electronic_invoicing")),
+            "invoicing_rut_url": row.get("invoicing_rut_url") or None,
+            "registration_timestamp": row.get("registration_timestamp") or None,
+            "registration_date": row.get("registration_date") or None,
+            "registration_time": row.get("registration_time") or None,
+            "observations": row.get("observations") or None,
+            "entered_flag": to_optional_bool(row.get("entered_flag")),
+            "sources_json": json.loads(row.get("sources_json") or "[]"),
+            "source_excel": source_excel_value or None,
+        }
+
+        if not knowledge_extended_profile_enabled:
+            source_entries = full_row.get("sources_json")
+            if not isinstance(source_entries, list):
+                source_entries = []
+
+            legacy_profile = {
+                "client_code": full_row.get("client_code") or "",
+                "commercial_name": full_row.get("commercial_name") or "",
+                "client_type": full_row.get("client_type") or "",
+                "billing_email": full_row.get("billing_email") or "",
+                "vat_regime": full_row.get("vat_regime") or "",
+                "electronic_invoicing": bool_to_option(full_row.get("electronic_invoicing")),
+                "invoicing_rut_url": full_row.get("invoicing_rut_url") or "",
+                "registration_timestamp": full_row.get("registration_timestamp") or "",
+                "registration_date": full_row.get("registration_date") or "",
+                "registration_time": full_row.get("registration_time") or "",
+                "observations": full_row.get("observations") or "",
+                "entered_flag": bool_to_option(full_row.get("entered_flag")),
             }
-        )
+
+            full_row["sources_json"] = {
+                "sources": [str(item) for item in source_entries if str(item).strip()],
+                "legacy_profile": legacy_profile,
+            }
+
+        if knowledge_supported_columns:
+            filtered_row = {
+                key: value
+                for key, value in full_row.items()
+                if key in knowledge_supported_columns
+            }
+            clinic_rows.append(filtered_row)
+        else:
+            clinic_rows.append(full_row)
 
     professional_rows = []
     for row in professionals:
@@ -248,6 +359,8 @@ def main() -> None:
         "professionals_synced": len(professional_rows),
         "sample_events_synced": len(sample_rows),
         "sample_events_failed": failed_sample_rows,
+        "knowledge_columns_detected": len(knowledge_supported_columns),
+        "knowledge_extended_profile_enabled": knowledge_extended_profile_enabled,
     }
     print(json.dumps(result, ensure_ascii=True))
 

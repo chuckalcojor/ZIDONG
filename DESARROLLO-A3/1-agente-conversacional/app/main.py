@@ -85,6 +85,17 @@ VALID_MESSAGE_MODES = {
     "small_talk",
 }
 
+CLIENT_TYPE_OPTIONS = {
+    "es_persona": "Es Persona",
+    "empresa": "Empresa",
+    "otro": "Otro",
+}
+
+VAT_REGIME_OPTIONS = {
+    "no_responsable_iva": "No responsable de IVA",
+    "responsable_iva": "Responsable de IVA",
+}
+
 
 def build_openai_fallback_turn(ai_state: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -589,6 +600,114 @@ def normalize_lookup_key(text: str) -> str:
     )
     translated = re.sub(r"[^a-z0-9 ]", " ", translated)
     return re.sub(r"\s+", " ", translated).strip()
+
+
+def normalize_phone_lookup(value: Any) -> str:
+    digits = re.sub(r"\D+", "", str(value or ""))
+    if not digits:
+        return ""
+    if len(digits) > 10:
+        return digits[-10:]
+    return digits
+
+
+def normalize_bool_option_value(value: Any) -> bool | None:
+    normalized = normalize_lookup_key(str(value or ""))
+    if not normalized:
+        return None
+    if normalized in {"si", "s", "yes", "true", "1", "ok", "x", "registrado", "ingresado"}:
+        return True
+    if normalized in {"no", "n", "false", "0", "pendiente"}:
+        return False
+    return None
+
+
+def bool_to_option(value: Any) -> str:
+    if value is True:
+        return "si"
+    if value is False:
+        return "no"
+    return ""
+
+
+def format_bool_option(value: Any) -> str:
+    option = bool_to_option(value)
+    if option == "si":
+        return "Si"
+    if option == "no":
+        return "No"
+    return "Sin dato"
+
+
+def normalize_client_type_value(value: Any) -> str:
+    normalized = normalize_lookup_key(str(value or ""))
+    if not normalized:
+        return ""
+    if normalized in CLIENT_TYPE_OPTIONS:
+        return normalized
+    if "persona" in normalized:
+        return "es_persona"
+    if "empresa" in normalized:
+        return "empresa"
+    if "otro" in normalized:
+        return "otro"
+    return ""
+
+
+def normalize_vat_regime_value(value: Any) -> str:
+    normalized = normalize_lookup_key(str(value or ""))
+    if not normalized:
+        return ""
+    if normalized in VAT_REGIME_OPTIONS:
+        return normalized
+    if "no" in normalized and "responsable" in normalized:
+        return "no_responsable_iva"
+    if "responsable" in normalized:
+        return "responsable_iva"
+    return ""
+
+
+def sanitize_profile_text(value: Any, max_length: int = 400) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if len(text) > max_length:
+        text = text[:max_length]
+    return text
+
+
+def parse_knowledge_sources_payload(raw_value: Any) -> tuple[list[str], dict[str, Any]]:
+    if isinstance(raw_value, list):
+        return [str(item) for item in raw_value if str(item).strip()], {}
+
+    if isinstance(raw_value, dict):
+        sources_raw = raw_value.get("sources")
+        sources: list[str] = []
+        if isinstance(sources_raw, list):
+            sources = [str(item) for item in sources_raw if str(item).strip()]
+
+        profile_raw = raw_value.get("legacy_profile")
+        if isinstance(profile_raw, dict):
+            return sources, dict(profile_raw)
+
+        return sources, {}
+
+    return [], {}
+
+
+def build_knowledge_sources_payload(raw_value: Any, profile_updates: dict[str, Any]) -> dict[str, Any]:
+    sources, profile = parse_knowledge_sources_payload(raw_value)
+    if not sources:
+        sources = ["dashboard_manual"]
+
+    merged_profile = dict(profile)
+    for key, value in profile_updates.items():
+        merged_profile[key] = value
+
+    return {
+        "sources": sources,
+        "legacy_profile": merged_profile,
+    }
 
 
 def normalize_intent_token(token: str) -> str:
@@ -2439,6 +2558,19 @@ def format_turnaround_label(hours: int | None) -> str:
 
 def build_dashboard_context() -> dict[str, Any]:
     clients = safe_fetch(supabase.list_clients_with_assignment, [])
+    knowledge_index = safe_fetch(lambda: supabase.list_a3_knowledge_index(limit=5000), [])
+    knowledge_profile_schema_probe = safe_fetch(
+        lambda: supabase.fetch_rows(
+            "clients_a3_knowledge",
+            {"select": "billing_email", "limit": "1"},
+        ),
+        None,
+    )
+    professionals_index = safe_fetch(
+        lambda: supabase.list_a3_professionals_index(limit=8000),
+        [],
+    )
+    couriers = safe_fetch(lambda: supabase.list_active_couriers(limit=2000), [])
     requests_rows = safe_fetch(lambda: supabase.list_requests(limit=4000), [])
     conversations = safe_fetch(lambda: supabase.list_recent_conversations(limit=300), [])
     messages = safe_fetch(lambda: supabase.list_recent_messages(limit=500), [])
@@ -2469,8 +2601,73 @@ def build_dashboard_context() -> dict[str, Any]:
     latest_request_by_client: dict[str, str] = {}
     latest_sample_by_client: dict[str, str] = {}
 
+    knowledge_rows = ensure_dict_rows(knowledge_index)
+    professionals_rows = ensure_dict_rows(professionals_index)
+    courier_rows = ensure_dict_rows(couriers)
+    knowledge_profile_extended_schema = knowledge_profile_schema_probe is not None
+    knowledge_profile_editing_enabled = True
+    knowledge_profile_compat_mode = not knowledge_profile_extended_schema
+    knowledge_by_key: dict[str, dict[str, Any]] = {}
+    knowledge_by_name: dict[str, dict[str, Any]] = {}
+    knowledge_by_phone: dict[str, dict[str, Any]] = {}
+
+    for row in knowledge_rows:
+        clinic_key = str(row.get("clinic_key") or "").strip()
+        if clinic_key and clinic_key not in knowledge_by_key:
+            knowledge_by_key[clinic_key] = row
+
+        clinic_name_key = normalize_lookup_key(str(row.get("clinic_name") or ""))
+        if clinic_name_key and clinic_name_key not in knowledge_by_name:
+            knowledge_by_name[clinic_name_key] = row
+
+        phone_key = normalize_phone_lookup(row.get("phone"))
+        if phone_key and phone_key not in knowledge_by_phone:
+            knowledge_by_phone[phone_key] = row
+
+    professionals_by_clinic_key: dict[str, list[dict[str, Any]]] = {}
+    for row in professionals_rows:
+        clinic_key = str(row.get("clinic_key") or "").strip()
+        if not clinic_key:
+            continue
+        professionals_by_clinic_key.setdefault(clinic_key, []).append(row)
+
+    def resolve_client_knowledge(client_row: dict[str, Any]) -> dict[str, Any] | None:
+        clinic_name_key = normalize_lookup_key(str(client_row.get("clinic_name") or ""))
+        if clinic_name_key and clinic_name_key in knowledge_by_key:
+            return knowledge_by_key[clinic_name_key]
+
+        phone_key = normalize_phone_lookup(client_row.get("phone"))
+        if phone_key and phone_key in knowledge_by_phone:
+            return knowledge_by_phone[phone_key]
+
+        if clinic_name_key and clinic_name_key in knowledge_by_name:
+            return knowledge_by_name[clinic_name_key]
+
+        return None
+
+    couriers_options = []
+    for row in courier_rows:
+        courier_id = str(row.get("id") or "").strip()
+        courier_name = str(row.get("name") or "").strip()
+        if not courier_id or not courier_name:
+            continue
+        couriers_options.append(
+            {
+                "id": courier_id,
+                "name": courier_name,
+                "availability": row.get("availability") or "available",
+            }
+        )
+
+    couriers_options.sort(key=lambda row: str(row.get("name") or ""))
+
     for client in clients:
-        zone = (client.get("zone") or "Sin zona").strip()
+        knowledge_row = resolve_client_knowledge(client) or {}
+        zone = (
+            client.get("zone")
+            or knowledge_row.get("locality")
+            or "Sin zona"
+        ).strip()
         zone_counter[zone] += 1
 
         assignment = assignment_from_client(client)
@@ -2525,21 +2722,190 @@ def build_dashboard_context() -> dict[str, Any]:
     }
 
     clients_rows = []
+    clients_with_knowledge = 0
+    clients_marked_new = 0
     for client in clients:
         assignment = assignment_from_client(client)
         courier_data = assignment.get("couriers") if assignment else None
-        client_id = str(client.get("id"))
+        client_id = str(client.get("id") or "").strip()
+        knowledge_row = resolve_client_knowledge(client) or {}
+        _, legacy_profile = parse_knowledge_sources_payload(knowledge_row.get("sources_json"))
+
+        clinic_name = str(client.get("clinic_name") or knowledge_row.get("clinic_name") or "-").strip()
+        clinic_key = str(knowledge_row.get("clinic_key") or normalize_lookup_key(clinic_name)).strip()
+        commercial_name = str(
+            knowledge_row.get("commercial_name") or legacy_profile.get("commercial_name") or ""
+        ).strip()
+
+        display_name = commercial_name or clinic_name
+        clinic_name_norm = normalize_lookup_key(clinic_name)
+        commercial_name_norm = normalize_lookup_key(commercial_name)
+        secondary_name = "-"
+        if commercial_name and clinic_name and commercial_name_norm != clinic_name_norm:
+            secondary_name = clinic_name
+
+        professional_rows = professionals_by_clinic_key.get(clinic_key, [])
+        professional_names = sorted(
+            {
+                str(row.get("professional_name") or "").strip()
+                for row in professional_rows
+                if str(row.get("professional_name") or "").strip()
+            }
+        )
+        professional_cards = sorted(
+            {
+                str(row.get("professional_card") or "").strip()
+                for row in professional_rows
+                if str(row.get("professional_card") or "").strip()
+            }
+        )
+
+        professional_name_text = ", ".join(professional_names[:2]) if professional_names else "-"
+        if len(professional_names) > 2:
+            professional_name_text = (
+                f"{professional_name_text} (+{len(professional_names) - 2})"
+            )
+
+        professional_card_text = ", ".join(professional_cards[:2]) if professional_cards else "-"
+        if len(professional_cards) > 2:
+            professional_card_text = (
+                f"{professional_card_text} (+{len(professional_cards) - 2})"
+            )
+
+        assigned_courier_id = str(
+            (assignment or {}).get("courier_id")
+            or (courier_data.get("id") if isinstance(courier_data, dict) else "")
+            or ""
+        ).strip()
+
+        billing_type = str(client.get("billing_type") or "").strip().lower()
+        if billing_type == "credit":
+            billing_type_label = "Credito"
+        elif billing_type == "cash":
+            billing_type_label = "Contado"
+        else:
+            billing_type_label = "-"
+
+        has_knowledge = bool(knowledge_row)
+        is_registered = bool(knowledge_row.get("is_registered")) if has_knowledge else False
+        is_new_client = bool(knowledge_row.get("is_new_client")) if has_knowledge else False
+
+        if has_knowledge:
+            clients_with_knowledge += 1
+        if is_new_client:
+            clients_marked_new += 1
+
+        registration_state = "Sin indice"
+        if is_new_client:
+            registration_state = "Nuevo"
+        elif is_registered:
+            registration_state = "Registrado"
+        elif has_knowledge:
+            registration_state = "No confirmado"
+
+        client_type_value = normalize_client_type_value(
+            knowledge_row.get("client_type") or legacy_profile.get("client_type")
+        )
+        vat_regime_value = normalize_vat_regime_value(
+            knowledge_row.get("vat_regime") or legacy_profile.get("vat_regime")
+        )
+        electronic_invoicing_value = normalize_bool_option_value(
+            knowledge_row.get("electronic_invoicing")
+            if knowledge_row.get("electronic_invoicing") is not None
+            else legacy_profile.get("electronic_invoicing")
+        )
+        entered_flag_value = normalize_bool_option_value(
+            knowledge_row.get("entered_flag")
+            if knowledge_row.get("entered_flag") is not None
+            else legacy_profile.get("entered_flag")
+        )
+
+        registration_timestamp = str(
+            knowledge_row.get("registration_timestamp")
+            or legacy_profile.get("registration_timestamp")
+            or knowledge_row.get("source_updated_at")
+            or knowledge_row.get("synced_at")
+            or client.get("created_at")
+            or ""
+        ).strip()
+        registration_date = str(
+            knowledge_row.get("registration_date") or legacy_profile.get("registration_date") or ""
+        ).strip()
+        registration_time = str(
+            knowledge_row.get("registration_time") or legacy_profile.get("registration_time") or ""
+        ).strip()
+        if not registration_date and registration_timestamp:
+            registration_date = registration_timestamp[:10]
+        if not registration_time and len(registration_timestamp) >= 16:
+            registration_time = registration_timestamp[11:16]
+
         clients_rows.append(
             {
-                "clinic_name": client.get("clinic_name") or "-",
-                "phone": client.get("phone") or "-",
-                "address": client.get("address") or "-",
-                "zone": client.get("zone") or "Sin zona",
+                "client_id": client_id,
+                "clinic_key": clinic_key,
+                "display_name": display_name,
+                "secondary_name": secondary_name,
+                "clinic_name": clinic_name,
+                "commercial_name": commercial_name or "-",
+                "client_code": (
+                    knowledge_row.get("client_code")
+                    or legacy_profile.get("client_code")
+                )
+                or client.get("external_code")
+                or "-",
+                "client_type": client_type_value,
+                "client_type_label": CLIENT_TYPE_OPTIONS.get(client_type_value, "Sin dato"),
+                "tax_id": client.get("tax_id") or "-",
+                "phone": client.get("phone") or knowledge_row.get("phone") or "-",
+                "email": knowledge_row.get("email") or "-",
+                "billing_email": (
+                    knowledge_row.get("billing_email")
+                    or legacy_profile.get("billing_email")
+                    or "-"
+                ),
+                "address": client.get("address") or knowledge_row.get("address") or "-",
+                "city": client.get("city") or knowledge_row.get("locality") or "-",
+                "zone": client.get("zone") or knowledge_row.get("locality") or "Sin zona",
                 "courier_name": courier_data.get("name") if courier_data else "Sin mensajero",
+                "assigned_courier_id": assigned_courier_id,
+                "billing_type": billing_type_label,
+                "client_status": "Activo" if client.get("is_active") is not False else "Inactivo",
+                "registration_state": registration_state,
+                "is_registered": is_registered,
+                "is_new_client": is_new_client,
+                "result_delivery_mode": knowledge_row.get("result_delivery_mode") or "-",
+                "payment_policy": knowledge_row.get("payment_policy") or "-",
+                "professional_name": professional_name_text,
+                "professional_card": professional_card_text,
+                "vat_regime": vat_regime_value,
+                "vat_regime_label": VAT_REGIME_OPTIONS.get(vat_regime_value, "Sin dato"),
+                "electronic_invoicing": electronic_invoicing_value,
+                "electronic_invoicing_option": bool_to_option(electronic_invoicing_value),
+                "electronic_invoicing_label": format_bool_option(electronic_invoicing_value),
+                "invoicing_rut_url": (
+                    knowledge_row.get("invoicing_rut_url")
+                    or legacy_profile.get("invoicing_rut_url")
+                    or "-"
+                ),
+                "registration_timestamp": registration_timestamp or "-",
+                "registration_date": registration_date or "-",
+                "registration_time": registration_time or "-",
+                "observations": (
+                    knowledge_row.get("observations")
+                    or legacy_profile.get("observations")
+                    or "-"
+                ),
+                "entered_flag": entered_flag_value,
+                "entered_flag_option": bool_to_option(entered_flag_value),
+                "entered_flag_label": format_bool_option(entered_flag_value),
+                "profile_updated_at": (
+                    knowledge_row.get("source_updated_at") or knowledge_row.get("synced_at") or "-"
+                ),
                 "requests_count": request_count_by_client.get(client_id, 0),
                 "samples_count": sample_count_by_client.get(client_id, 0),
                 "latest_request_status": latest_request_by_client.get(client_id, "-"),
                 "latest_sample_status": latest_sample_by_client.get(client_id, "-"),
+                "has_profile": has_knowledge,
             }
         )
 
@@ -2577,6 +2943,8 @@ def build_dashboard_context() -> dict[str, Any]:
         "total_clients": total_clients,
         "clients_with_courier": clients_with_courier,
         "clients_without_courier": max(total_clients - clients_with_courier, 0),
+        "clients_with_profile": clients_with_knowledge,
+        "new_clients_indexed": clients_marked_new,
         "active_requests": len(requests_rows),
         "pending_pickup": sample_status_counter.get("pending_pickup", 0),
         "in_analysis": sample_status_counter.get("in_analysis", 0),
@@ -2708,6 +3076,11 @@ def build_dashboard_context() -> dict[str, Any]:
         "samples": recent_samples,
         "catalog_preview": catalog[:80],
         "clients_rows": clients_rows,
+        "couriers_options": couriers_options,
+        "client_type_options": CLIENT_TYPE_OPTIONS,
+        "vat_regime_options": VAT_REGIME_OPTIONS,
+        "knowledge_profile_editing_enabled": knowledge_profile_editing_enabled,
+        "knowledge_profile_compat_mode": knowledge_profile_compat_mode,
         "analysis_rows": analysis_rows,
         "catalog_rows": catalog_rows,
         "flow_stage_counts": flow_stage_counts,
@@ -4467,6 +4840,213 @@ def dashboard_overview() -> Any:
     return jsonify(build_dashboard_context())
 
 
+@app.post("/api/dashboard/client-profile")
+@login_required
+def dashboard_update_client_profile() -> Any:
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid payload"}), 400
+
+    clinic_key = normalize_lookup_key(str(payload.get("clinic_key") or ""))
+    clinic_name = sanitize_profile_text(payload.get("clinic_name"), max_length=180)
+    client_id = str(payload.get("client_id") or "").strip()
+    field = str(payload.get("field") or "").strip()
+    value = payload.get("value")
+
+    if not clinic_key:
+        return jsonify({"error": "Missing clinic_key"}), 400
+
+    allowed_fields = {
+        "client_code",
+        "commercial_name",
+        "client_type",
+        "billing_email",
+        "vat_regime",
+        "electronic_invoicing",
+        "invoicing_rut_url",
+        "observations",
+        "entered_flag",
+    }
+    if field not in allowed_fields:
+        return jsonify({"error": "Unsupported field"}), 400
+
+    profile_row: dict[str, Any] = {
+        "clinic_key": clinic_key,
+        "clinic_name": clinic_name or clinic_key,
+        "source_updated_at": datetime.now().isoformat(),
+    }
+
+    legacy_profile_value: Any = ""
+
+    if field == "client_type":
+        normalized_value = normalize_client_type_value(value)
+        profile_row["client_type"] = normalized_value or None
+        legacy_profile_value = normalized_value
+    elif field == "vat_regime":
+        normalized_value = normalize_vat_regime_value(value)
+        profile_row["vat_regime"] = normalized_value or None
+        legacy_profile_value = normalized_value
+    elif field == "electronic_invoicing":
+        normalized_value = normalize_bool_option_value(value)
+        profile_row["electronic_invoicing"] = normalized_value
+        legacy_profile_value = bool_to_option(normalized_value)
+    elif field == "entered_flag":
+        normalized_value = normalize_bool_option_value(value)
+        profile_row["entered_flag"] = normalized_value
+        legacy_profile_value = bool_to_option(normalized_value)
+    elif field == "observations":
+        normalized_value = sanitize_profile_text(value, max_length=1200)
+        profile_row["observations"] = normalized_value
+        legacy_profile_value = normalized_value or ""
+    elif field == "invoicing_rut_url":
+        normalized_value = sanitize_profile_text(value, max_length=500)
+        profile_row["invoicing_rut_url"] = normalized_value
+        legacy_profile_value = normalized_value or ""
+    elif field == "commercial_name":
+        normalized_value = sanitize_profile_text(value, max_length=180)
+        profile_row["commercial_name"] = normalized_value
+        legacy_profile_value = normalized_value or ""
+    elif field == "billing_email":
+        normalized_value = sanitize_profile_text(value, max_length=180)
+        profile_row["billing_email"] = normalized_value
+        legacy_profile_value = normalized_value or ""
+    elif field == "client_code":
+        normalized_value = sanitize_profile_text(value, max_length=80)
+        profile_row["client_code"] = normalized_value
+        legacy_profile_value = normalized_value or ""
+
+    try:
+        supabase.upsert_client_profile(profile_row)
+    except httpx.HTTPStatusError as exc:
+        response_text = exc.response.text or ""
+        if exc.response.status_code == 400 and "Could not find the" in response_text:
+            try:
+                current_rows = supabase.fetch_rows(
+                    "clients_a3_knowledge",
+                    {
+                        "select": "clinic_key,clinic_name,sources_json",
+                        "clinic_key": f"eq.{clinic_key}",
+                        "limit": "1",
+                    },
+                )
+                current_row = current_rows[0] if current_rows else None
+                sources_payload = build_knowledge_sources_payload(
+                    (current_row or {}).get("sources_json") if isinstance(current_row, dict) else [],
+                    {field: legacy_profile_value},
+                )
+
+                if current_row:
+                    supabase.update_rows(
+                        "clients_a3_knowledge",
+                        {"clinic_key": f"eq.{clinic_key}"},
+                        {
+                            "clinic_name": clinic_name or current_row.get("clinic_name") or clinic_key,
+                            "sources_json": sources_payload,
+                            "source_updated_at": datetime.now().isoformat(),
+                        },
+                    )
+                else:
+                    supabase.insert_rows(
+                        "clients_a3_knowledge",
+                        [
+                            {
+                                "clinic_key": clinic_key,
+                                "clinic_name": clinic_name or clinic_key,
+                                "is_registered": False,
+                                "is_new_client": False,
+                                "sources_json": sources_payload,
+                                "source_excel": "dashboard_manual",
+                                "source_updated_at": datetime.now().isoformat(),
+                            }
+                        ],
+                        upsert=True,
+                        on_conflict="clinic_key",
+                    )
+            except httpx.HTTPStatusError as fallback_exc:
+                return (
+                    jsonify(
+                        {
+                            "error": "Unable to update client profile in legacy compatibility mode",
+                            "status_code": fallback_exc.response.status_code,
+                        }
+                    ),
+                    503,
+                )
+        else:
+            return (
+                jsonify(
+                    {
+                        "error": "Unable to update client profile",
+                        "status_code": exc.response.status_code,
+                    }
+                ),
+                503,
+            )
+
+    if field == "client_code" and client_id:
+        try:
+            supabase.update_rows(
+                "clients",
+                {"id": f"eq.{client_id}"},
+                {"external_code": profile_row.get("client_code")},
+            )
+        except httpx.HTTPStatusError:
+            pass
+
+    return jsonify(
+        {
+            "ok": True,
+            "clinic_key": clinic_key,
+            "field": field,
+            "value": profile_row.get(field),
+        }
+    )
+
+
+@app.post("/api/dashboard/client-assignment")
+@login_required
+def dashboard_update_client_assignment() -> Any:
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid payload"}), 400
+
+    client_id = str(payload.get("client_id") or "").strip()
+    courier_id = str(payload.get("courier_id") or "").strip()
+
+    if not client_id:
+        return jsonify({"error": "Missing client_id"}), 400
+
+    if courier_id:
+        couriers = safe_fetch(lambda: supabase.list_active_couriers(limit=2000), [])
+        valid_courier_ids = {
+            str(row.get("id") or "").strip()
+            for row in ensure_dict_rows(couriers)
+            if str(row.get("id") or "").strip()
+        }
+        if valid_courier_ids and courier_id not in valid_courier_ids:
+            return jsonify({"error": "Invalid courier_id"}), 400
+
+    assigned_by = f"dashboard:{session.get('username') or 'operator'}"
+    try:
+        supabase.upsert_client_assignment(
+            client_id=client_id,
+            courier_id=courier_id or None,
+            assigned_by=assigned_by,
+        )
+    except httpx.HTTPStatusError as exc:
+        return (
+            jsonify(
+                {
+                    "error": "Unable to update courier assignment",
+                    "status_code": exc.response.status_code,
+                }
+            ),
+            503,
+        )
+
+    return jsonify({"ok": True, "client_id": client_id, "courier_id": courier_id or None})
+
+
 @app.post("/webhooks/new-client-registration")
 def new_client_registration_webhook() -> Any:
     secret = request.headers.get("X-New-Client-Secret")
@@ -4502,6 +5082,44 @@ def new_client_registration_webhook() -> Any:
     phone = extract_form_value(payload, ("N Celular", "Celular o Telefono", "N Celular de comunicacion"))
     email = extract_form_value(payload, ("Email", "Correo o WhatsApp", "Correo"))
     tax_id = extract_form_value(payload, ("Rut", "Informacion en RUT", "NIT", "Nif"))
+    client_code = extract_form_value(payload, ("Codigo", "Codigo cliente", "C"))
+    commercial_name = extract_form_value(payload, ("Nombre Comercial", "Nombre comercial"))
+    client_type = normalize_client_type_value(
+        extract_form_value(payload, ("Tipo", "Tipo de cliente"))
+    )
+    billing_email = extract_form_value(
+        payload,
+        (
+            "Correo (En el cual te llegaran las facturas)",
+            "Correo facturacion",
+            "Correo para facturacion",
+        ),
+    )
+    vat_regime = normalize_vat_regime_value(
+        extract_form_value(payload, ("Tipo de regimen IVA", "Regimen IVA", "Regimen"))
+    )
+    electronic_invoicing = normalize_bool_option_value(
+        extract_form_value(payload, ("Facturacion Electronica", "Facturacion electronica"))
+    )
+    invoicing_rut_url = extract_form_value(
+        payload,
+        (
+            "Si deseas factura electronica adjuntar el Rut",
+            "Informacion en RUT",
+            "Rut para facturacion",
+        ),
+    )
+    entered_flag = normalize_bool_option_value(
+        extract_form_value(payload, ("Ingresado", "Registrado"))
+    )
+    registration_timestamp = extract_form_value(
+        payload,
+        ("Marca temporal", "Timestamp", "Fecha y hora de registro"),
+    )
+    registration_date = extract_form_value(payload, ("Fecha", "Fecha registro"))
+    registration_time = extract_form_value(payload, ("Hora", "Hora registro"))
+    observations = extract_form_value(payload, ("Observaciones", "Informacion suministrada"))
+
     professional_name = extract_form_value(
         payload,
         ("Medico Veterinario", "Nombre completo del medico", "Medico veterinario"),
@@ -4521,6 +5139,21 @@ def new_client_registration_webhook() -> Any:
 
     now_iso = datetime.now().isoformat()
 
+    legacy_profile_payload = {
+        "client_code": client_code or "",
+        "commercial_name": commercial_name or "",
+        "client_type": client_type or "",
+        "billing_email": billing_email or "",
+        "vat_regime": vat_regime or "",
+        "electronic_invoicing": bool_to_option(electronic_invoicing),
+        "invoicing_rut_url": invoicing_rut_url or "",
+        "registration_timestamp": registration_timestamp or now_iso,
+        "registration_date": registration_date or now_iso[:10],
+        "registration_time": registration_time or now_iso[11:16],
+        "observations": observations or "",
+        "entered_flag": bool_to_option(entered_flag),
+    }
+
     knowledge_row = {
         "clinic_key": clinic_key,
         "clinic_name": clinic_name,
@@ -4532,7 +5165,38 @@ def new_client_registration_webhook() -> Any:
         "email": email or None,
         "payment_policy": None,
         "result_delivery_mode": result_delivery_mode or None,
+        "client_code": client_code or None,
+        "commercial_name": commercial_name or None,
+        "client_type": client_type or None,
+        "billing_email": billing_email or None,
+        "vat_regime": vat_regime or None,
+        "electronic_invoicing": electronic_invoicing,
+        "invoicing_rut_url": invoicing_rut_url or None,
+        "registration_timestamp": registration_timestamp or now_iso,
+        "registration_date": registration_date or now_iso[:10],
+        "registration_time": registration_time or now_iso[11:16],
+        "observations": observations or None,
+        "entered_flag": entered_flag,
         "sources_json": ["google_form_webhook"],
+        "source_excel": "google_form_webhook",
+        "source_updated_at": now_iso,
+    }
+
+    knowledge_row_legacy = {
+        "clinic_key": clinic_key,
+        "clinic_name": clinic_name,
+        "is_registered": True,
+        "is_new_client": True,
+        "address": address or None,
+        "locality": locality or None,
+        "phone": phone or None,
+        "email": email or None,
+        "payment_policy": None,
+        "result_delivery_mode": result_delivery_mode or None,
+        "sources_json": build_knowledge_sources_payload(
+            ["google_form_webhook"],
+            legacy_profile_payload,
+        ),
         "source_excel": "google_form_webhook",
         "source_updated_at": now_iso,
     }
@@ -4546,12 +5210,24 @@ def new_client_registration_webhook() -> Any:
     }
 
     try:
-        supabase.insert_rows(
-            "clients_a3_knowledge",
-            [knowledge_row],
-            upsert=True,
-            on_conflict="clinic_key",
-        )
+        try:
+            supabase.insert_rows(
+                "clients_a3_knowledge",
+                [knowledge_row],
+                upsert=True,
+                on_conflict="clinic_key",
+            )
+        except httpx.HTTPStatusError as knowledge_exc:
+            response_text = knowledge_exc.response.text or ""
+            if knowledge_exc.response.status_code == 400 and "Could not find the" in response_text:
+                supabase.insert_rows(
+                    "clients_a3_knowledge",
+                    [knowledge_row_legacy],
+                    upsert=True,
+                    on_conflict="clinic_key",
+                )
+            else:
+                raise
         if professional_row["professional_key"]:
             supabase.insert_rows(
                 "clients_a3_professionals",
@@ -4562,6 +5238,7 @@ def new_client_registration_webhook() -> Any:
 
         if address:
             base_client_payload = {
+                "external_code": client_code or None,
                 "clinic_name": clinic_name,
                 "tax_id": tax_id or None,
                 "phone": phone or None,
