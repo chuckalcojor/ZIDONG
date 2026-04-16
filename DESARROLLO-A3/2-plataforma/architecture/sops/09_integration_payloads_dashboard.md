@@ -132,6 +132,28 @@ Allowed `status` values:
 - `cancelled`
 - `error_pending_assignment`
 
+### Update request operational fields (manual dashboard)
+
+Endpoint: `POST /api/dashboard/request-operation`
+
+```json
+{
+  "request_id": "uuid-request",
+  "priority": "high",
+  "sample_count": 3,
+  "sample_types": ["Sangre", "Orina"]
+}
+```
+
+Editable fields:
+- `priority`: `normal`, `high`, `urgent`
+- `sample_count`: entero >= 0
+- `sample_types`: arreglo de tipos de muestra (multi-seleccion)
+
+Notas operativas:
+- Los cambios quedan trazados en `request_events` con `event_type=dashboard_request_manual_update`.
+- `priority=high` se conserva como prioridad operativa en dashboard y se mapea a valor persistible en base actual para compatibilidad.
+
 ### Update sample status (manual dashboard)
 
 Endpoint: `POST /api/dashboard/sample-status`
@@ -143,14 +165,38 @@ Endpoint: `POST /api/dashboard/sample-status`
 }
 ```
 
+Alternativa cuando la fila aun no tiene `sample_id` (creacion automatica al primer cambio):
+
+```json
+{
+  "status": "in_lab",
+  "sample_seed": {
+    "seed_token": "request:uuid-request",
+    "request_id": "uuid-request",
+    "client_id": "uuid-client",
+    "sample_type": "Sangre",
+    "test_name": "Pendiente por definir",
+    "priority": "high"
+  }
+}
+```
+
 Allowed `status` values:
 - `pending_pickup`
+- `picked_up`
 - `on_route`
 - `received_lab`
+- `in_lab`
 - `in_analysis`
+- `processed`
 - `ready_results`
 - `delivered_results`
 - `cancelled`
+
+Notas operativas:
+- El dashboard registra siempre el cambio en `lab_sample_events` con `event_type=dashboard_status_update`.
+- Si se envia `sample_seed` y no existe `sample_id`, el backend crea un registro en `lab_samples` y luego registra el evento.
+- Si el estado no existe aun en el constraint actual de `lab_samples.status`, se conserva como estado operativo via evento (sin romper la operacion).
 
 ## Anarvet Result Sync Payload
 

@@ -985,6 +985,115 @@ tbody tr:nth-child(even) {
   min-width: 176px;
 }
 
+.request-priority-select {
+  min-width: 138px;
+}
+
+.request-sample-count-input {
+  min-width: 96px;
+  max-width: 120px;
+}
+
+.request-sample-types-select {
+  min-width: 230px;
+  min-height: 118px;
+}
+
+.request-sample-types-select option {
+  padding: 2px 6px;
+}
+
+.sample-types-picker {
+  position: relative;
+  min-width: 220px;
+}
+
+.sample-types-summary-trigger {
+  display: block;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #1f2128;
+  color: #f5f7fb;
+  border-radius: 8px;
+  padding: 7px 34px 7px 10px;
+  font-size: 12px;
+  line-height: 1.3;
+  cursor: pointer;
+  position: relative;
+}
+
+.sample-types-summary-trigger::after {
+  content: "▾";
+  position: absolute;
+  right: 10px;
+  top: 7px;
+  color: #c8cfda;
+  font-size: 12px;
+}
+
+.sample-types-summary-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.sample-types-picker[open] .sample-types-summary-trigger {
+  border-color: rgba(249, 115, 22, 0.7);
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.2);
+}
+
+.sample-types-panel {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  width: min(320px, 90vw);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #181b22;
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 20px 34px rgba(0, 0, 0, 0.35);
+}
+
+.sample-types-panel .request-sample-types-select {
+  width: 100%;
+  min-width: 0;
+}
+
+.address-cell {
+  min-width: 230px;
+}
+
+.address-cell span {
+  display: block;
+  line-height: 1.32;
+}
+
+.address-check {
+  display: inline-block;
+  margin-top: 6px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 10px;
+  letter-spacing: 0.01em;
+}
+
+.address-check-match {
+  border: 1px solid rgba(45, 212, 137, 0.5);
+  background: rgba(45, 212, 137, 0.14);
+  color: #7cf0bb;
+}
+
+.address-check-mismatch {
+  border: 1px solid rgba(248, 113, 113, 0.48);
+  background: rgba(248, 113, 113, 0.14);
+  color: #ffb4b4;
+}
+
+.address-check-unknown {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #c8ced8;
+}
+
 .cell-input::placeholder {
   color: #8a95a9;
 }

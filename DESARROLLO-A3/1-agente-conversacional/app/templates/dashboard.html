@@ -104,15 +104,6 @@
                 <span class="avatar-chip">3</span>
                 <span class="avatar-chip">Ope</span>
               </div>
-              <button type="button" class="ghost-btn"><i data-lucide="share-2"></i>Compartir</button>
-            </div>
-          </div>
-
-          <div class="top-line top-line-actions">
-            <div></div>
-            <div class="action-group">
-              <button type="button" class="ghost-btn"><i data-lucide="download"></i>Exportar</button>
-              <button type="button" class="primary-btn"><i data-lucide="plus"></i>Nuevo contrato</button>
             </div>
           </div>
         </header>
@@ -315,7 +306,7 @@
 
         <section class="section-head">
           <h1>Solicitudes</h1>
-          <p>Gestion operativa de retiros con domicilio, cantidad y tipo de muestra, enlazada con clientes y muestras.</p>
+          <p>Gestion operativa de retiros con direccion, prioridad, cantidad y tipo de muestra, enlazada con clientes y muestras.</p>
         </section>
 
         <section class="kpi-grid compact">
@@ -334,7 +325,7 @@
                 <tr>
                   <th>Fecha</th>
                   <th>Cliente</th>
-                  <th>Domicilio</th>
+                  <th>Direccion</th>
                   <th>Cant. muestras</th>
                   <th>Tipo de muestra</th>
                   <th>Prioridad</th>
@@ -352,10 +343,54 @@
                     <strong>{{ row.clinic_name }}</strong>
                     <div class="table-subtext">{{ ui_service_area_labels.get(row.service_area, row.service_area) }}</div>
                   </td>
-                  <td>{{ row.pickup_address or 'Sin domicilio' }}</td>
-                  <td>{{ row.sample_count }}</td>
-                  <td>{{ row.sample_types_text }}</td>
-                  <td>{{ row.priority | title if row.priority else '-' }}</td>
+                  <td class="address-cell">
+                    <span>{{ row.pickup_address or 'Sin direccion' }}</span>
+                    {% if row.address_match_state == 'match' %}
+                    <small class="address-check address-check-match">Coincide con clientes</small>
+                    {% elif row.address_match_state == 'mismatch' %}
+                    <small class="address-check address-check-mismatch">No coincide con clientes</small>
+                    {% else %}
+                    <small class="address-check address-check-unknown">Sin referencia en clientes</small>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <input
+                      class="cell-input request-sample-count-input"
+                      data-request-id="{{ row.request_id }}"
+                      type="number"
+                      min="0"
+                      max="999"
+                      step="1"
+                      value="{{ row.sample_count }}"
+                    >
+                    <small class="table-subtext">Registradas: {{ row.sample_count_actual }}</small>
+                  </td>
+                  <td>
+                    <details class="sample-types-picker">
+                      <summary class="sample-types-summary-trigger" data-sample-types-summary>
+                        {% if row.sample_types %}
+                          {{ row.sample_types | length }} tipos seleccionados
+                        {% else %}
+                          Seleccionar tipos de muestra
+                        {% endif %}
+                      </summary>
+                      <div class="sample-types-panel">
+                        <select class="cell-select request-sample-types-select" data-request-id="{{ row.request_id }}" multiple size="6">
+                          {% for option in context.sample_type_options %}
+                          <option value="{{ option }}" {{ 'selected' if option in row.sample_types else '' }}>{{ option }}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                    </details>
+                    <small class="table-subtext" data-sample-types-text>{{ row.sample_types_text }}</small>
+                  </td>
+                  <td>
+                    <select class="cell-select request-priority-select" data-request-id="{{ row.request_id }}">
+                      {% for option in context.request_priority_options %}
+                      <option value="{{ option.value }}" {{ 'selected' if row.priority == option.value else '' }}>{{ option.label }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
                   <td>{{ row.courier_name or 'Sin asignar' }}</td>
                   <td>
                     <select class="cell-select request-status-select" data-request-id="{{ row.request_id }}">
@@ -499,88 +534,15 @@
         {% endif %}
 
         {% if active_tab == 'muestras' %}
-        {% set demo_samples = [
-          {
-            "created_at": "2026-04-15 08:10",
-            "client_name": "Clinica Vet Norte",
-            "sample_type": "Sangre",
-            "test_name": "Hemograma completo",
-            "priority": "Alta",
-            "status": "pending_pickup",
-            "courier_name": "Carlos M.",
-          },
-          {
-            "created_at": "2026-04-15 08:42",
-            "client_name": "PetCare Kennedy",
-            "sample_type": "Suero",
-            "test_name": "Perfil hepatico",
-            "priority": "Media",
-            "status": "picked_up",
-            "courier_name": "Laura P.",
-          },
-          {
-            "created_at": "2026-04-15 09:03",
-            "client_name": "Hospital Vet Andino",
-            "sample_type": "Orina",
-            "test_name": "Uroanalisis",
-            "priority": "Baja",
-            "status": "on_route",
-            "courier_name": "Miguel R.",
-          },
-          {
-            "created_at": "2026-04-15 09:35",
-            "client_name": "Animal Health Suba",
-            "sample_type": "Sangre",
-            "test_name": "Quimica sanguinea 6 elementos",
-            "priority": "Alta",
-            "status": "received_lab",
-            "courier_name": "Paula V.",
-          },
-          {
-            "created_at": "2026-04-15 10:14",
-            "client_name": "VetHome Fontibon",
-            "sample_type": "Materia fecal",
-            "test_name": "Coproparasitario",
-            "priority": "Media",
-            "status": "in_lab",
-            "courier_name": "Carlos M.",
-          },
-          {
-            "created_at": "2026-04-15 10:38",
-            "client_name": "Centro Veterinario Luna",
-            "sample_type": "Sangre",
-            "test_name": "Hemoparasitos",
-            "priority": "Alta",
-            "status": "processed",
-            "courier_name": "Laura P.",
-          },
-          {
-            "created_at": "2026-04-15 11:05",
-            "client_name": "Vet Integral Chapinero",
-            "sample_type": "Plasma",
-            "test_name": "Perfil renal",
-            "priority": "Media",
-            "status": "ready_results",
-            "courier_name": "Miguel R.",
-          },
-        ] %}
-        {% set use_demo_samples = not context.samples %}
-        {% set sample_rows_view = context.samples if context.samples else demo_samples %}
-        {% set sample_status_view = context.sample_status if context.samples else {
-          "pending_pickup": 6,
-          "picked_up": 4,
-          "on_route": 3,
-          "received_lab": 5,
-          "in_lab": 2,
-          "processed": 3,
-          "ready_results": 2,
-        } %}
+        {% set use_placeholder_samples = not context.samples %}
+        {% set sample_rows_view = context.samples if context.samples else context.sample_placeholder_rows %}
+        {% set sample_status_view = context.sample_status if context.samples else context.sample_placeholder_status %}
 
         <section class="section-head">
           <h1>Muestras</h1>
           <p>Trazabilidad completa: a retirar, retirada, en camino, laboratorio y analisis listo.</p>
-          {% if use_demo_samples %}
-          <p class="section-note-warn">Sin registros reales en muestras. Se muestran datos de ejemplo para previsualizacion.</p>
+          {% if use_placeholder_samples %}
+          <p class="section-note-warn">Sin muestras consolidadas en base. Puedes actualizar estado manualmente y al primer cambio se crea el registro operativo.</p>
           {% endif %}
         </section>
 
@@ -612,18 +574,27 @@
                   <td>{{ sample.priority or '-' }}</td>
                   <td><span class="status-badge">{{ ui_status_labels.get(sample.status, sample.status) }}</span></td>
                   <td>
-                    {% if sample.id %}
-                    <select class="cell-select sample-status-select" data-sample-id="{{ sample.id }}">
+                    <select
+                      class="cell-select sample-status-select"
+                      data-sample-id="{{ sample.id or '' }}"
+                      data-seed-token="{{ sample.seed_token or '' }}"
+                      data-seed-request-id="{{ sample.request_id or '' }}"
+                      data-seed-client-id="{{ sample.client_id or '' }}"
+                      data-seed-sample-type="{{ sample.sample_type or '' }}"
+                      data-seed-test-name="{{ sample.test_name or sample.test_code or '' }}"
+                      data-seed-priority="{{ sample.priority_value or sample.priority or 'normal' }}"
+                    >
                       {% for option in context.sample_status_options %}
                       <option value="{{ option.value }}" {{ 'selected' if sample.status == option.value else '' }}>{{ option.label }}</option>
                       {% endfor %}
                     </select>
                     <small class="save-flag" data-sample-save></small>
-                    {% else %}
-                    <span class="status-badge">Demo</span>
-                    {% endif %}
                   </td>
                   <td>{{ sample.couriers.name if sample.couriers else (sample.courier_name or '-') }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="8" class="empty-cell">No hay muestras para gestionar en este momento.</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -1064,23 +1035,39 @@
     }
 
     function mountOperationalStatusEditing() {
-      const requestControls = document.querySelectorAll('.request-status-select');
-      const sampleControls = document.querySelectorAll('.sample-status-select');
-      if (!requestControls.length && !sampleControls.length) return;
+      const requestStatusControls = document.querySelectorAll('.request-status-select');
+      const requestPriorityControls = document.querySelectorAll('.request-priority-select');
+      const requestSampleCountControls = document.querySelectorAll('.request-sample-count-input');
+      const requestSampleTypesControls = document.querySelectorAll('.request-sample-types-select');
+      const sampleStatusControls = document.querySelectorAll('.sample-status-select');
 
-      const requestApi = "{{ url_for('dashboard_update_request_status') }}";
-      const sampleApi = "{{ url_for('dashboard_update_sample_status') }}";
+      if (
+        !requestStatusControls.length &&
+        !requestPriorityControls.length &&
+        !requestSampleCountControls.length &&
+        !requestSampleTypesControls.length &&
+        !sampleStatusControls.length
+      ) {
+        return;
+      }
+
+      const requestStatusApi = "{{ url_for('dashboard_update_request_status') }}";
+      const requestOperationApi = "{{ url_for('dashboard_update_request_operation') }}";
+      const sampleStatusApi = "{{ url_for('dashboard_update_sample_status') }}";
 
       function setSaveStatus(row, selector, state, message) {
-        const flag = row.querySelector(selector);
-        if (!flag) return;
-        flag.classList.remove('ok', 'error', 'saving');
-        if (!state) {
-          flag.textContent = '';
-          return;
-        }
-        flag.classList.add(state);
-        flag.textContent = message;
+        const flags = row.querySelectorAll(selector);
+        if (!flags.length) return;
+
+        flags.forEach((flag) => {
+          flag.classList.remove('ok', 'error', 'saving');
+          if (!state) {
+            flag.textContent = '';
+            return;
+          }
+          flag.classList.add(state);
+          flag.textContent = message;
+        });
       }
 
       function setControlState(control, state) {
@@ -1090,17 +1077,58 @@
         }
       }
 
-      async function persistStatus(control, config) {
+      function readControlValue(control) {
+        if (control.multiple) {
+          return Array.from(control.selectedOptions)
+            .map((option) => String(option.value || '').trim())
+            .filter(Boolean)
+            .sort();
+        }
+        return String(control.value || '').trim();
+      }
+
+      function toControlToken(value) {
+        if (Array.isArray(value)) {
+          return JSON.stringify([...value].sort());
+        }
+        return String(value || '').trim();
+      }
+
+      function restoreControlValue(control, token) {
+        if (control.multiple) {
+          let selectedValues = [];
+          try {
+            const parsed = JSON.parse(token || '[]');
+            if (Array.isArray(parsed)) {
+              selectedValues = parsed.map((value) => String(value || '').trim());
+            }
+          } catch (_error) {
+            selectedValues = [];
+          }
+          const selectedSet = new Set(selectedValues);
+          Array.from(control.options).forEach((option) => {
+            option.selected = selectedSet.has(String(option.value || '').trim());
+          });
+          return;
+        }
+        control.value = token;
+      }
+
+      async function persistControl(control, config) {
         const row = control.closest('tr');
         if (!row) return;
 
-        const currentValue = (control.value || '').trim();
-        const previousValue = control.dataset.lastValue || '';
-        if (currentValue === previousValue) return;
+        const currentValue = readControlValue(control);
+        const currentToken = toControlToken(currentValue);
+        const previousToken = control.dataset.lastValue || '';
+        if (currentToken === previousToken) return;
 
         const payload = config.buildPayload(control, row, currentValue);
         if (!payload) {
-          control.value = previousValue;
+          restoreControlValue(control, previousToken);
+          if (typeof config.onError === 'function') {
+            config.onError(control, row);
+          }
           return;
         }
 
@@ -1116,55 +1144,180 @@
 
           const data = await response.json().catch(() => ({}));
           if (!response.ok || !data.ok) {
-            throw new Error(data.error || 'No se pudo guardar estado');
+            throw new Error(data.error || 'No se pudo guardar');
           }
 
-          control.dataset.lastValue = currentValue;
+          control.dataset.lastValue = currentToken;
+          if (typeof config.onSuccess === 'function') {
+            config.onSuccess(control, row, data);
+          }
           setControlState(control, 'is-success');
-          setSaveStatus(row, config.saveSelector, 'ok', 'Estado actualizado');
+          setSaveStatus(row, config.saveSelector, 'ok', 'Guardado');
           setTimeout(() => {
             setControlState(control, '');
             setSaveStatus(row, config.saveSelector, '', '');
           }, 1400);
         } catch (error) {
-          control.value = previousValue;
+          restoreControlValue(control, previousToken);
+          if (typeof config.onError === 'function') {
+            config.onError(control, row);
+          }
           setControlState(control, 'is-error');
-          setSaveStatus(row, config.saveSelector, 'error', 'Error al actualizar');
+          setSaveStatus(row, config.saveSelector, 'error', 'Error al guardar');
           console.error(error);
         }
       }
 
-      requestControls.forEach((control) => {
-        control.dataset.lastValue = (control.value || '').trim();
+      function updateSampleTypesDisplay(control) {
+        const row = control.closest('tr');
+        if (!row) return;
+
+        const selectedValues = Array.from(control.selectedOptions)
+          .map((option) => String(option.value || '').trim())
+          .filter(Boolean);
+
+        const summary = row.querySelector('[data-sample-types-summary]');
+        if (summary) {
+          if (!selectedValues.length) {
+            summary.textContent = 'Seleccionar tipos de muestra';
+          } else if (selectedValues.length === 1) {
+            summary.textContent = selectedValues[0];
+          } else {
+            summary.textContent = `${selectedValues.length} tipos seleccionados`;
+          }
+        }
+
+        const text = row.querySelector('[data-sample-types-text]');
+        if (text) {
+          text.textContent = selectedValues.length ? selectedValues.join(', ') : 'Sin muestras';
+        }
+      }
+
+      requestStatusControls.forEach((control) => {
+        control.dataset.lastValue = toControlToken(readControlValue(control));
         control.addEventListener('change', () =>
-          persistStatus(control, {
-            endpoint: requestApi,
+          persistControl(control, {
+            endpoint: requestStatusApi,
             saveSelector: '[data-request-save]',
-            buildPayload(ctrl, row, status) {
+            buildPayload(ctrl, row, statusValue) {
               const requestId = ctrl.dataset.requestId || row.dataset.requestId || '';
-              if (!requestId) return null;
+              if (!requestId || typeof statusValue !== 'string') return null;
               return {
                 request_id: requestId,
-                status,
+                status: statusValue,
               };
             },
           })
         );
       });
 
-      sampleControls.forEach((control) => {
-        control.dataset.lastValue = (control.value || '').trim();
+      requestPriorityControls.forEach((control) => {
+        control.dataset.lastValue = toControlToken(readControlValue(control));
         control.addEventListener('change', () =>
-          persistStatus(control, {
-            endpoint: sampleApi,
-            saveSelector: '[data-sample-save]',
-            buildPayload(ctrl, _row, status) {
-              const sampleId = ctrl.dataset.sampleId || '';
-              if (!sampleId) return null;
+          persistControl(control, {
+            endpoint: requestOperationApi,
+            saveSelector: '[data-request-save]',
+            buildPayload(ctrl, row, priorityValue) {
+              const requestId = ctrl.dataset.requestId || row.dataset.requestId || '';
+              if (!requestId || typeof priorityValue !== 'string') return null;
               return {
-                sample_id: sampleId,
-                status,
+                request_id: requestId,
+                priority: priorityValue,
               };
+            },
+          })
+        );
+      });
+
+      requestSampleCountControls.forEach((control) => {
+        control.dataset.lastValue = toControlToken(readControlValue(control));
+
+        const persistCount = () =>
+          persistControl(control, {
+            endpoint: requestOperationApi,
+            saveSelector: '[data-request-save]',
+            buildPayload(ctrl, row, sampleCountValue) {
+              const requestId = ctrl.dataset.requestId || row.dataset.requestId || '';
+              if (!requestId || typeof sampleCountValue !== 'string' || !sampleCountValue) return null;
+              return {
+                request_id: requestId,
+                sample_count: sampleCountValue,
+              };
+            },
+          });
+
+        control.addEventListener('change', persistCount);
+        control.addEventListener('blur', persistCount);
+        control.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            control.blur();
+          }
+        });
+      });
+
+      requestSampleTypesControls.forEach((control) => {
+        control.dataset.lastValue = toControlToken(readControlValue(control));
+        updateSampleTypesDisplay(control);
+        control.addEventListener('change', () =>
+          persistControl(control, {
+            endpoint: requestOperationApi,
+            saveSelector: '[data-request-save]',
+            buildPayload(ctrl, row, sampleTypesValue) {
+              const requestId = ctrl.dataset.requestId || row.dataset.requestId || '';
+              if (!requestId || !Array.isArray(sampleTypesValue)) return null;
+              return {
+                request_id: requestId,
+                sample_types: sampleTypesValue,
+              };
+            },
+            onSuccess(ctrl) {
+              updateSampleTypesDisplay(ctrl);
+            },
+            onError(ctrl) {
+              updateSampleTypesDisplay(ctrl);
+            },
+          })
+        );
+      });
+
+      sampleStatusControls.forEach((control) => {
+        control.dataset.lastValue = toControlToken(readControlValue(control));
+        control.addEventListener('change', () =>
+          persistControl(control, {
+            endpoint: sampleStatusApi,
+            saveSelector: '[data-sample-save]',
+            buildPayload(ctrl, _row, statusValue) {
+              const sampleId = ctrl.dataset.sampleId || '';
+              if (typeof statusValue !== 'string') return null;
+
+              if (sampleId) {
+                return {
+                  sample_id: sampleId,
+                  status: statusValue,
+                };
+              }
+
+              const seedToken = ctrl.dataset.seedToken || '';
+              if (!seedToken) return null;
+
+              return {
+                sample_seed: {
+                  seed_token: seedToken,
+                  request_id: ctrl.dataset.seedRequestId || '',
+                  client_id: ctrl.dataset.seedClientId || '',
+                  sample_type: ctrl.dataset.seedSampleType || '',
+                  test_name: ctrl.dataset.seedTestName || '',
+                  priority: ctrl.dataset.seedPriority || '',
+                },
+                status: statusValue,
+              };
+            },
+            onSuccess(ctrl, _row, data) {
+              const sampleId = String((data || {}).sample_id || '').trim();
+              if (!sampleId) return;
+              ctrl.dataset.sampleId = sampleId;
+              ctrl.dataset.seedToken = '';
             },
           })
         );

@@ -271,7 +271,7 @@ class SupabaseService:
 
     def list_requests(self, limit: int = 2000) -> list[dict[str, Any]]:
         params = {
-            "select": "id,client_id,service_area,intent,priority,status,pickup_address,scheduled_pickup_date,assigned_courier_id,created_at,updated_at,fallback_reason,clients(clinic_name),couriers(name)",
+            "select": "id,client_id,service_area,intent,priority,status,pickup_address,scheduled_pickup_date,assigned_courier_id,created_at,updated_at,fallback_reason,clients(clinic_name,address),couriers(name)",
             "order": "created_at.desc",
             "limit": str(limit),
         }

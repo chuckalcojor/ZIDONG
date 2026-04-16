@@ -96,6 +96,18 @@ VAT_REGIME_OPTIONS = {
     "responsable_iva": "Responsable de IVA",
 }
 
+REQUEST_PRIORITY_OPTIONS: list[tuple[str, str]] = [
+    ("normal", "Normal"),
+    ("high", "Alta"),
+    ("urgent", "Urgente"),
+]
+REQUEST_PRIORITY_LABELS = {key: label for key, label in REQUEST_PRIORITY_OPTIONS}
+REQUEST_PRIORITY_DB_MAP = {
+    "normal": "normal",
+    "high": "urgent",
+    "urgent": "urgent",
+}
+
 REQUEST_STATUS_OPTIONS: list[tuple[str, str]] = [
     ("received", "Recibida"),
     ("assigned", "Asignada"),
@@ -111,14 +123,31 @@ REQUEST_STATUS_LABELS = {key: label for key, label in REQUEST_STATUS_OPTIONS}
 
 SAMPLE_STATUS_OPTIONS: list[tuple[str, str]] = [
     ("pending_pickup", "A retirar"),
+    ("picked_up", "Retirada"),
     ("on_route", "En camino"),
     ("received_lab", "Recibida en laboratorio"),
+    ("in_lab", "En laboratorio"),
     ("in_analysis", "En analisis"),
+    ("processed", "Procesada"),
     ("ready_results", "Resultados listos"),
     ("delivered_results", "Resultados entregados"),
     ("cancelled", "Cancelada"),
 ]
 SAMPLE_STATUS_LABELS = {key: label for key, label in SAMPLE_STATUS_OPTIONS}
+SAMPLE_STATUS_DB_OPTIONS = {
+    "pending_pickup",
+    "on_route",
+    "received_lab",
+    "in_analysis",
+    "ready_results",
+    "delivered_results",
+    "cancelled",
+}
+SAMPLE_STATUS_DB_FALLBACK = {
+    "picked_up": "on_route",
+    "in_lab": "in_analysis",
+    "processed": "in_analysis",
+}
 
 
 def build_openai_fallback_turn(ai_state: dict[str, Any]) -> dict[str, Any]:
@@ -2584,6 +2613,142 @@ def normalize_status_value(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def normalize_request_priority_value(value: Any) -> str:
+    normalized = normalize_lookup_key(str(value or ""))
+    if not normalized:
+        return ""
+    if normalized in {"normal", "estandar", "standar", "media", "medio", "baja", "bajo"}:
+        return "normal"
+    if normalized in {"alta", "high", "prioridadalta"}:
+        return "high"
+    if normalized in {"urgente", "urgent", "critica", "critico", "prioridadurgente"}:
+        return "urgent"
+    if normalized in REQUEST_PRIORITY_LABELS:
+        return normalized
+    return ""
+
+
+def normalize_request_priority_db_value(priority: str) -> str:
+    return REQUEST_PRIORITY_DB_MAP.get(priority, "normal")
+
+
+def normalize_uuid_value(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    if not re.fullmatch(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+        text,
+    ):
+        return ""
+    return text
+
+
+def normalize_sample_status_db_value(status: str) -> str:
+    normalized = normalize_status_value(status)
+    if normalized in SAMPLE_STATUS_DB_OPTIONS:
+        return normalized
+    return SAMPLE_STATUS_DB_FALLBACK.get(normalized, "pending_pickup")
+
+
+def normalize_request_sample_count_value(value: Any) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if not re.fullmatch(r"\d{1,3}", text):
+        return None
+    count = int(text)
+    if count < 0 or count > 999:
+        return None
+    return count
+
+
+def sanitize_sample_type_value(value: Any, max_length: int = 80) -> str:
+    text = " ".join(str(value or "").strip().split())
+    if not text:
+        return ""
+    if len(text) > max_length:
+        text = text[:max_length].strip()
+    return text
+
+
+def normalize_request_sample_types_value(value: Any) -> list[str]:
+    if value is None:
+        return []
+
+    raw_items: list[Any]
+    if isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    elif isinstance(value, str):
+        raw_items = [part.strip() for part in re.split(r"[;,]", value)]
+    else:
+        raw_items = [value]
+
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for raw_item in raw_items:
+        sample_type = sanitize_sample_type_value(raw_item)
+        sample_type_key = normalize_lookup_key(sample_type)
+        if not sample_type or not sample_type_key or sample_type_key in seen:
+            continue
+        cleaned.append(sample_type)
+        seen.add(sample_type_key)
+        if len(cleaned) >= 12:
+            break
+
+    return cleaned
+
+
+def parse_request_manual_overrides(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    overrides: dict[str, dict[str, Any]] = {}
+    for row in events:
+        request_id = str(row.get("request_id") or "").strip()
+        if not request_id or request_id in overrides:
+            continue
+
+        payload = row.get("event_payload")
+        if not isinstance(payload, dict):
+            continue
+
+        override: dict[str, Any] = {}
+        priority = normalize_request_priority_value(payload.get("priority"))
+        if priority:
+            override["priority"] = priority
+
+        if "sample_count" in payload:
+            sample_count = normalize_request_sample_count_value(payload.get("sample_count"))
+            if sample_count is not None:
+                override["sample_count"] = sample_count
+
+        if "sample_types" in payload:
+            override["sample_types"] = normalize_request_sample_types_value(
+                payload.get("sample_types")
+            )
+
+        if override:
+            overrides[request_id] = override
+
+    return overrides
+
+
+def parse_sample_manual_status_overrides(events: list[dict[str, Any]]) -> dict[str, str]:
+    overrides: dict[str, str] = {}
+    for row in events:
+        sample_id = str(row.get("sample_id") or "").strip()
+        if not sample_id or sample_id in overrides:
+            continue
+
+        payload = row.get("event_payload")
+        if not isinstance(payload, dict):
+            continue
+
+        status = normalize_status_value(payload.get("status"))
+        if status in SAMPLE_STATUS_LABELS:
+            overrides[sample_id] = status
+
+    return overrides
+
+
 def build_dashboard_context() -> dict[str, Any]:
     clients = safe_fetch(supabase.list_clients_with_assignment, [])
     knowledge_index = safe_fetch(lambda: supabase.list_a3_knowledge_index(limit=5000), [])
@@ -2619,6 +2784,46 @@ def build_dashboard_context() -> dict[str, Any]:
         ),
         [],
     )
+    request_manual_events = safe_fetch(
+        lambda: supabase.fetch_rows(
+            "request_events",
+            {
+                "select": "request_id,event_payload,created_at",
+                "event_type": "eq.dashboard_request_manual_update",
+                "order": "created_at.desc",
+                "limit": "8000",
+            },
+        ),
+        [],
+    )
+    sample_manual_events = safe_fetch(
+        lambda: supabase.fetch_rows(
+            "lab_sample_events",
+            {
+                "select": "sample_id,event_payload,created_at",
+                "event_type": "eq.dashboard_status_update",
+                "order": "created_at.desc",
+                "limit": "8000",
+            },
+        ),
+        [],
+    )
+
+    request_manual_overrides = parse_request_manual_overrides(
+        ensure_dict_rows(request_manual_events)
+    )
+    sample_manual_status_overrides = parse_sample_manual_status_overrides(
+        ensure_dict_rows(sample_manual_events)
+    )
+    effective_samples: list[dict[str, Any]] = []
+    for raw_sample in ensure_dict_rows(samples):
+        sample_row = dict(raw_sample)
+        sample_id = str(sample_row.get("id") or "").strip()
+        override_status = sample_manual_status_overrides.get(sample_id)
+        if override_status:
+            sample_row["status"] = override_status
+        effective_samples.append(sample_row)
+    samples = effective_samples
 
     total_clients = len(clients)
     clients_with_courier = 0
@@ -2631,6 +2836,7 @@ def build_dashboard_context() -> dict[str, Any]:
     sample_count_by_request: Counter[str] = Counter()
     latest_sample_status_by_request: dict[str, str] = {}
     sample_types_by_request: dict[str, set[str]] = {}
+    sample_type_option_set: set[str] = set()
 
     knowledge_rows = ensure_dict_rows(knowledge_index)
     professionals_rows = ensure_dict_rows(professionals_index)
@@ -2691,6 +2897,26 @@ def build_dashboard_context() -> dict[str, Any]:
         )
 
     couriers_options.sort(key=lambda row: str(row.get("name") or ""))
+
+    clients_by_id = {
+        str(client.get("id") or "").strip(): client
+        for client in ensure_dict_rows(clients)
+        if str(client.get("id") or "").strip()
+    }
+
+    for catalog_row in ensure_dict_rows(catalog):
+        sample_type = sanitize_sample_type_value(catalog_row.get("sample_type"))
+        if sample_type:
+            sample_type_option_set.add(sample_type)
+
+    for sample_row in ensure_dict_rows(samples):
+        sample_type = sanitize_sample_type_value(sample_row.get("sample_type"))
+        if sample_type:
+            sample_type_option_set.add(sample_type)
+
+    for override in request_manual_overrides.values():
+        for sample_type in normalize_request_sample_types_value(override.get("sample_types")):
+            sample_type_option_set.add(sample_type)
 
     for client in clients:
         knowledge_row = resolve_client_knowledge(client) or {}
@@ -3018,93 +3244,140 @@ def build_dashboard_context() -> dict[str, Any]:
         for name, amount in service_area_counter.most_common(6)
     ]
 
-    request_operation_rows = []
-    for request_row in requests_rows:
+    def build_request_operation_row(
+        request_row: dict[str, Any],
+        *,
+        force_include: bool = False,
+    ) -> dict[str, Any] | None:
         request_id = str(request_row.get("id") or "").strip()
         if not request_id:
-            continue
+            return None
 
-        service_area = str(request_row.get("service_area") or "").strip()
-        intent = str(request_row.get("intent") or "").strip()
-        include_in_operations = bool(request_row.get("pickup_address")) or bool(
-            sample_count_by_request.get(request_id, 0)
+        client_id = str(request_row.get("client_id") or "").strip()
+        service_area = str(request_row.get("service_area") or "").strip() or "unknown"
+        intent = str(request_row.get("intent") or "").strip() or "unknown"
+
+        samples_count_actual = sample_count_by_request.get(request_id, 0)
+        sample_types_actual = sorted(sample_types_by_request.get(request_id, set()))
+        manual_override = request_manual_overrides.get(request_id, {})
+
+        if "sample_count" in manual_override:
+            sample_count = int(manual_override.get("sample_count") or 0)
+        else:
+            sample_count = samples_count_actual
+
+        if "sample_types" in manual_override:
+            sample_types = normalize_request_sample_types_value(manual_override.get("sample_types"))
+        else:
+            sample_types = sample_types_actual
+
+        for sample_type in sample_types:
+            sample_type_option_set.add(sample_type)
+
+        include_in_operations = force_include or bool(request_row.get("pickup_address")) or bool(
+            samples_count_actual
         )
         if service_area == "route_scheduling" or intent == "programacion_rutas":
             include_in_operations = True
 
         if not include_in_operations:
-            continue
+            return None
 
-        sample_types = sorted(sample_types_by_request.get(request_id, set()))
-        request_operation_rows.append(
-            {
-                "request_id": request_id,
-                "client_id": str(request_row.get("client_id") or "").strip(),
-                "clinic_name": (
-                    ((request_row.get("clients") or {}).get("clinic_name"))
-                    if isinstance(request_row.get("clients"), dict)
-                    else None
-                )
-                or "Sin cliente",
-                "service_area": service_area or "unknown",
-                "intent": intent or "unknown",
-                "priority": request_row.get("priority") or "normal",
-                "status": request_row.get("status") or "unknown",
-                "pickup_address": request_row.get("pickup_address") or "Sin domicilio",
-                "scheduled_pickup_date": request_row.get("scheduled_pickup_date") or "-",
-                "created_at": request_row.get("created_at") or "-",
-                "courier_name": (
-                    ((request_row.get("couriers") or {}).get("name"))
-                    if isinstance(request_row.get("couriers"), dict)
-                    else None
-                )
-                or "Sin asignar",
-                "sample_count": sample_count_by_request.get(request_id, 0),
-                "sample_types": sample_types,
-                "sample_types_text": ", ".join(sample_types) if sample_types else "Sin muestras",
-                "latest_sample_status": latest_sample_status_by_request.get(request_id, "-"),
-            }
-        )
+        clients_payload = request_row.get("clients") if isinstance(request_row.get("clients"), dict) else {}
+        clients_payload = clients_payload if isinstance(clients_payload, dict) else {}
+        client_row = clients_by_id.get(client_id) or {}
+
+        clinic_name = str(clients_payload.get("clinic_name") or client_row.get("clinic_name") or "").strip()
+        if not clinic_name:
+            clinic_name = "Sin cliente"
+
+        registered_address = str(clients_payload.get("address") or client_row.get("address") or "").strip()
+        pickup_address_raw = str(request_row.get("pickup_address") or "").strip()
+        pickup_address = pickup_address_raw or "Sin direccion"
+
+        address_match_state = "unknown"
+        if registered_address and pickup_address_raw:
+            if normalize_lookup_key(registered_address) == normalize_lookup_key(pickup_address_raw):
+                address_match_state = "match"
+            else:
+                address_match_state = "mismatch"
+
+        priority_db = normalize_request_priority_value(request_row.get("priority")) or "normal"
+        priority = manual_override.get("priority") or priority_db
+        priority = normalize_request_priority_value(priority) or "normal"
+
+        return {
+            "request_id": request_id,
+            "client_id": client_id,
+            "clinic_name": clinic_name,
+            "service_area": service_area,
+            "intent": intent,
+            "priority": priority,
+            "status": request_row.get("status") or "unknown",
+            "pickup_address": pickup_address,
+            "pickup_address_raw": pickup_address_raw,
+            "registered_address": registered_address or "-",
+            "address_match_state": address_match_state,
+            "scheduled_pickup_date": request_row.get("scheduled_pickup_date") or "-",
+            "created_at": request_row.get("created_at") or "-",
+            "courier_name": (
+                ((request_row.get("couriers") or {}).get("name"))
+                if isinstance(request_row.get("couriers"), dict)
+                else None
+            )
+            or "Sin asignar",
+            "sample_count": sample_count,
+            "sample_count_actual": samples_count_actual,
+            "sample_types": sample_types,
+            "sample_types_text": ", ".join(sample_types) if sample_types else "Sin muestras",
+            "latest_sample_status": latest_sample_status_by_request.get(request_id, "-"),
+        }
+
+    request_operation_rows: list[dict[str, Any]] = []
+    for request_row in requests_rows:
+        operation_row = build_request_operation_row(request_row)
+        if operation_row:
+            request_operation_rows.append(operation_row)
 
     if not request_operation_rows:
-        request_operation_rows = [
-            {
-                "request_id": str(request_row.get("id") or "").strip(),
-                "client_id": str(request_row.get("client_id") or "").strip(),
-                "clinic_name": (
-                    ((request_row.get("clients") or {}).get("clinic_name"))
-                    if isinstance(request_row.get("clients"), dict)
-                    else None
-                )
-                or "Sin cliente",
-                "service_area": str(request_row.get("service_area") or "unknown"),
-                "intent": str(request_row.get("intent") or "unknown"),
-                "priority": request_row.get("priority") or "normal",
-                "status": request_row.get("status") or "unknown",
-                "pickup_address": request_row.get("pickup_address") or "Sin domicilio",
-                "scheduled_pickup_date": request_row.get("scheduled_pickup_date") or "-",
-                "created_at": request_row.get("created_at") or "-",
-                "courier_name": (
-                    ((request_row.get("couriers") or {}).get("name"))
-                    if isinstance(request_row.get("couriers"), dict)
-                    else None
-                )
-                or "Sin asignar",
-                "sample_count": sample_count_by_request.get(str(request_row.get("id") or ""), 0),
-                "sample_types": sorted(
-                    sample_types_by_request.get(str(request_row.get("id") or ""), set())
-                ),
-                "sample_types_text": ", ".join(
-                    sorted(sample_types_by_request.get(str(request_row.get("id") or ""), set()))
-                )
-                or "Sin muestras",
-                "latest_sample_status": latest_sample_status_by_request.get(
-                    str(request_row.get("id") or ""), "-"
-                ),
-            }
-            for request_row in requests_rows[:200]
-            if str(request_row.get("id") or "").strip()
-        ]
+        for request_row in requests_rows[:200]:
+            operation_row = build_request_operation_row(request_row, force_include=True)
+            if operation_row:
+                request_operation_rows.append(operation_row)
+
+    sample_placeholder_rows: list[dict[str, Any]] = []
+    sample_placeholder_status_counter: Counter[str] = Counter()
+    if not samples:
+        for request_row in request_operation_rows[:120]:
+            request_id = str(request_row.get("request_id") or "").strip()
+            if not request_id:
+                continue
+
+            fallback_status = normalize_status_value(request_row.get("latest_sample_status"))
+            if fallback_status not in SAMPLE_STATUS_LABELS:
+                fallback_status = "pending_pickup"
+
+            sample_types = normalize_request_sample_types_value(request_row.get("sample_types"))
+            primary_sample_type = sample_types[0] if sample_types else "Sin tipo definido"
+            priority_value = normalize_request_priority_value(request_row.get("priority")) or "normal"
+
+            sample_placeholder_rows.append(
+                {
+                    "id": "",
+                    "seed_token": f"request:{request_id}",
+                    "request_id": request_id,
+                    "client_id": str(request_row.get("client_id") or "").strip(),
+                    "created_at": request_row.get("created_at") or "-",
+                    "client_name": request_row.get("clinic_name") or "Sin cliente",
+                    "sample_type": primary_sample_type,
+                    "test_name": "Pendiente por definir",
+                    "priority": REQUEST_PRIORITY_LABELS.get(priority_value, priority_value),
+                    "priority_value": priority_value,
+                    "status": fallback_status,
+                    "courier_name": request_row.get("courier_name") or "Sin asignar",
+                }
+            )
+            sample_placeholder_status_counter[fallback_status] += 1
 
     recent_requests = requests_rows[:50]
     recent_messages = messages[:50]
@@ -3192,6 +3465,21 @@ def build_dashboard_context() -> dict[str, Any]:
         "sessions_handoff": len([row for row in flow_sessions if row.get("requires_handoff")]),
     }
 
+    sample_type_options = sorted(
+        sample_type_option_set,
+        key=lambda value: normalize_lookup_key(value),
+    )
+    if not sample_type_options:
+        sample_type_options = [
+            "Sangre",
+            "Suero",
+            "Plasma",
+            "Orina",
+            "Materia fecal",
+            "Hisopado",
+            "Tejido",
+        ]
+
     return {
         "summary": summary_cards,
         "funnel": funnel_stages,
@@ -3200,17 +3488,24 @@ def build_dashboard_context() -> dict[str, Any]:
         "top_service_areas": top_service_areas,
         "request_status": dict(request_status_counter),
         "sample_status": dict(sample_status_counter),
+        "sample_placeholder_status": dict(sample_placeholder_status_counter),
         "clients": clients,
         "requests": recent_requests,
         "requests_rows": request_operation_rows,
         "conversations": conversations[:25],
         "messages": recent_messages,
         "samples": recent_samples,
+        "sample_placeholder_rows": sample_placeholder_rows,
         "catalog_preview": catalog[:80],
         "clients_rows": clients_rows,
         "couriers_options": couriers_options,
         "client_type_options": CLIENT_TYPE_OPTIONS,
         "vat_regime_options": VAT_REGIME_OPTIONS,
+        "request_priority_options": [
+            {"value": value, "label": label} for value, label in REQUEST_PRIORITY_OPTIONS
+        ],
+        "request_priority_labels": REQUEST_PRIORITY_LABELS,
+        "sample_type_options": sample_type_options,
         "request_status_options": [
             {"value": value, "label": label} for value, label in REQUEST_STATUS_OPTIONS
         ],
@@ -5199,6 +5494,97 @@ def dashboard_update_client_assignment() -> Any:
     return jsonify({"ok": True, "client_id": client_id, "courier_id": courier_id or None})
 
 
+@app.post("/api/dashboard/request-operation")
+@login_required
+def dashboard_update_request_operation() -> Any:
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid payload"}), 400
+
+    request_id = str(payload.get("request_id") or "").strip()
+    if not request_id:
+        return jsonify({"error": "Missing request_id"}), 400
+
+    has_priority = "priority" in payload
+    has_sample_count = "sample_count" in payload
+    has_sample_types = "sample_types" in payload
+
+    if not (has_priority or has_sample_count or has_sample_types):
+        return jsonify({"error": "Missing editable fields"}), 400
+
+    priority = ""
+    if has_priority:
+        priority = normalize_request_priority_value(payload.get("priority"))
+        if not priority:
+            return jsonify({"error": "Invalid request priority"}), 400
+
+    sample_count: int | None = None
+    if has_sample_count:
+        sample_count = normalize_request_sample_count_value(payload.get("sample_count"))
+        if sample_count is None:
+            return jsonify({"error": "Invalid sample_count"}), 400
+
+    sample_types: list[str] = []
+    if has_sample_types:
+        sample_types = normalize_request_sample_types_value(payload.get("sample_types"))
+
+    now_iso = datetime.now().isoformat()
+    updated_by = session.get("username") or "operator"
+
+    db_priority_value = ""
+    try:
+        if has_priority:
+            db_priority_value = normalize_request_priority_db_value(priority)
+            supabase.update_request(
+                request_id,
+                {
+                    "priority": db_priority_value,
+                    "updated_at": now_iso,
+                },
+            )
+
+        event_payload: dict[str, Any] = {
+            "updated_by": updated_by,
+            "source": "dashboard_solicitudes",
+            "updated_at": now_iso,
+        }
+        if has_priority:
+            event_payload["priority"] = priority
+            event_payload["priority_label"] = REQUEST_PRIORITY_LABELS.get(priority, priority)
+            event_payload["priority_db_value"] = db_priority_value
+        if has_sample_count and sample_count is not None:
+            event_payload["sample_count"] = sample_count
+        if has_sample_types:
+            event_payload["sample_types"] = sample_types
+
+        supabase.create_request_event(
+            request_id=request_id,
+            event_type="dashboard_request_manual_update",
+            event_payload=event_payload,
+        )
+    except httpx.HTTPStatusError as exc:
+        return (
+            jsonify(
+                {
+                    "error": "Unable to update request operation",
+                    "status_code": exc.response.status_code,
+                }
+            ),
+            503,
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "request_id": request_id,
+            "priority": priority if has_priority else None,
+            "priority_label": REQUEST_PRIORITY_LABELS.get(priority, priority) if has_priority else None,
+            "sample_count": sample_count if has_sample_count else None,
+            "sample_types": sample_types if has_sample_types else None,
+        }
+    )
+
+
 @app.post("/api/dashboard/request-status")
 @login_required
 def dashboard_update_request_status() -> Any:
@@ -5265,25 +5651,70 @@ def dashboard_update_sample_status() -> Any:
         return jsonify({"error": "Invalid payload"}), 400
 
     sample_id = str(payload.get("sample_id") or "").strip()
+    sample_seed = payload.get("sample_seed")
     status = normalize_status_value(payload.get("status"))
 
-    if not sample_id:
-        return jsonify({"error": "Missing sample_id"}), 400
     if status not in SAMPLE_STATUS_LABELS:
         return jsonify({"error": "Invalid sample status"}), 400
+    if not sample_id and not isinstance(sample_seed, dict):
+        return jsonify({"error": "Missing sample_id"}), 400
 
     now_iso = datetime.now().isoformat()
     updated_by = session.get("username") or "operator"
+    status_db = normalize_sample_status_db_value(status)
 
+    created_from_seed = False
+    persistence_mode = "event_only"
     try:
-        supabase.update_rows(
-            "lab_samples",
-            {"id": f"eq.{sample_id}"},
-            {
-                "status": status,
+        if not sample_id and isinstance(sample_seed, dict):
+            request_id_seed = normalize_uuid_value(sample_seed.get("request_id"))
+            client_id_seed = normalize_uuid_value(sample_seed.get("client_id"))
+            sample_type_seed = sanitize_sample_type_value(sample_seed.get("sample_type"))
+            test_name_seed = sanitize_profile_text(sample_seed.get("test_name"), max_length=160)
+            priority_seed = (
+                normalize_request_priority_value(sample_seed.get("priority")) or "normal"
+            )
+            priority_db = normalize_request_priority_db_value(priority_seed)
+            source_reference = sanitize_profile_text(sample_seed.get("seed_token"), max_length=120)
+
+            create_payload: dict[str, Any] = {
+                "status": status_db,
+                "priority": priority_db,
+                "source_system": "dashboard_manual",
+                "source_reference": source_reference or "dashboard_seed",
                 "updated_at": now_iso,
-            },
-        )
+            }
+            if request_id_seed:
+                create_payload["request_id"] = request_id_seed
+            if client_id_seed:
+                create_payload["client_id"] = client_id_seed
+            if sample_type_seed:
+                create_payload["sample_type"] = sample_type_seed
+            if test_name_seed:
+                create_payload["test_name"] = test_name_seed
+
+            created_rows = supabase.insert_rows("lab_samples", [create_payload])
+            created_row = created_rows[0] if created_rows else {}
+            sample_id = str((created_row or {}).get("id") or "").strip()
+            if not sample_id:
+                return jsonify({"error": "Unable to create sample"}), 503
+
+            created_from_seed = True
+            if status in SAMPLE_STATUS_DB_OPTIONS:
+                persistence_mode = "created_lab_sample_and_event"
+            else:
+                persistence_mode = "created_lab_sample_fallback_and_event"
+        elif status in SAMPLE_STATUS_DB_OPTIONS:
+            supabase.update_rows(
+                "lab_samples",
+                {"id": f"eq.{sample_id}"},
+                {
+                    "status": status,
+                    "updated_at": now_iso,
+                },
+            )
+            persistence_mode = "lab_samples_and_event"
+
         supabase.insert_rows(
             "lab_sample_events",
             [
@@ -5295,6 +5726,9 @@ def dashboard_update_sample_status() -> Any:
                         "status_label": SAMPLE_STATUS_LABELS.get(status, status),
                         "updated_by": updated_by,
                         "source": "dashboard_muestras",
+                        "persistence_mode": persistence_mode,
+                        "created_from_seed": created_from_seed,
+                        "status_db": status_db,
                         "updated_at": now_iso,
                     },
                 }
@@ -5317,6 +5751,8 @@ def dashboard_update_sample_status() -> Any:
             "sample_id": sample_id,
             "status": status,
             "status_label": SAMPLE_STATUS_LABELS.get(status, status),
+            "persistence_mode": persistence_mode,
+            "created_from_seed": created_from_seed,
         }
     )
 
