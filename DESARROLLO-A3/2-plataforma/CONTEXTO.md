@@ -22,6 +22,7 @@ El dashboard se sirve actualmente desde Flask (templates HTML en `1-agente-conve
 |-------|------|-------------|
 | Dashboard | `/dashboard` | Metricas generales, funnel, top couriers/zones |
 | Clientes | `/clientes` | Lista de clinicas con mensajero, solicitudes, muestras |
+| Motorizados | `/motorizados` | Cobertura por localidad y mapa operativo |
 | Muestras | `/muestras` | Estado de muestras de laboratorio |
 | Analisis | `/analisis` | Catalogo de tests y analisis activos |
 | Flujo | `/flujo` | Etapas conversacionales por sesion y transiciones |

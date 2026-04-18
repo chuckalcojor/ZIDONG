@@ -26,6 +26,7 @@ py -m pip install -r requirements.txt
 - Ejecutar `architecture/sql/005_telegram_message_history.sql` en SQL Editor.
 - Ejecutar `../3-conexiones/architecture/sql/006_clients_a3_knowledge_index.sql` en SQL Editor.
 - Ejecutar `../3-conexiones/architecture/sql/007_clients_dashboard_profile_fields.sql` en SQL Editor.
+- Ejecutar `../3-conexiones/architecture/sql/008_courier_locality_coverage.sql` en SQL Editor.
 
 4. Importar datos iniciales:
 
@@ -136,10 +137,13 @@ Integracion sugerida para Google Forms:
 - `GET /dashboard`
 - `GET /solicitudes`
 - `GET /clientes`
+- `GET /motorizados`
 - `GET /muestras`
 - `GET /analisis`
 - `GET /flujo`
 - `GET /api/dashboard/overview`
+- `POST /api/dashboard/courier-phone`
+- `POST /api/dashboard/courier-locality-assignment`
 - `POST /api/dashboard/request-status`
 - `POST /api/dashboard/sample-status`
 

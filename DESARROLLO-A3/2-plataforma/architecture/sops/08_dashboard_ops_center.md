@@ -16,6 +16,7 @@ Provide a single operational console for laboratory staff with secure access and
 5. Seguimiento de solicitudes y muestras.
 6. Catalogo de analisis y valores.
 7. Gestion manual de estado en Solicitudes y Muestras con trazabilidad de eventos.
+8. Vista de Motorizados con cobertura por localidad y mapa operativo.
 
 ## Operational KPIs
 - Total clients.
@@ -25,6 +26,7 @@ Provide a single operational console for laboratory staff with secure access and
 - Samples in analysis.
 - Results ready for delivery.
 - Open conversations.
+- Localidades con cobertura configurada vs pendientes.
 
 ## Reliability Rules
 - If integration tables are unavailable, dashboard should still load with partial data.

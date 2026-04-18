@@ -226,6 +226,60 @@ class SupabaseService:
         }
         return self.fetch_rows("couriers", params)
 
+    def list_courier_locality_coverage(self, limit: int = 200) -> list[dict[str, Any]]:
+        params = {
+            "select": "locality_code,locality_name,courier_id,assigned_by,assigned_at,couriers(id,name,phone,availability)",
+            "order": "locality_name.asc",
+            "limit": str(limit),
+        }
+        return self.fetch_rows("courier_locality_coverage", params)
+
+    def get_courier_for_locality_code(self, locality_code: str) -> dict[str, Any] | None:
+        params = {
+            "locality_code": f"eq.{locality_code}",
+            "select": "locality_code,locality_name,courier_id,couriers(id,name,phone,availability)",
+            "limit": "1",
+        }
+        rows = self.fetch_rows("courier_locality_coverage", params)
+        if not rows:
+            return None
+        row = rows[0]
+        courier = row.get("couriers") if isinstance(row.get("couriers"), dict) else None
+        return {
+            "locality_code": row.get("locality_code"),
+            "locality_name": row.get("locality_name"),
+            "courier_id": row.get("courier_id"),
+            "couriers": courier,
+        }
+
+    def upsert_courier_locality_coverage(
+        self,
+        *,
+        locality_code: str,
+        locality_name: str,
+        courier_id: str,
+        assigned_by: str = "dashboard_manual",
+    ) -> None:
+        self.insert_rows(
+            "courier_locality_coverage",
+            [
+                {
+                    "locality_code": locality_code,
+                    "locality_name": locality_name,
+                    "courier_id": courier_id,
+                    "assigned_by": assigned_by,
+                }
+            ],
+            upsert=True,
+            on_conflict="locality_code",
+        )
+
+    def delete_courier_locality_coverage(self, locality_code: str) -> int:
+        return self.delete_rows(
+            "courier_locality_coverage",
+            {"locality_code": f"eq.{locality_code}"},
+        )
+
     def upsert_client_profile(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         return self.insert_rows(
             "clients_a3_knowledge",

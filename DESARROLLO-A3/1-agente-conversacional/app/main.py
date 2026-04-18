@@ -149,6 +149,170 @@ SAMPLE_STATUS_DB_FALLBACK = {
     "processed": "in_analysis",
 }
 
+BOGOTA_LOCALITIES: list[dict[str, Any]] = [
+    {
+        "code": "usaquen",
+        "name": "Usaquen",
+        "aliases": ["usaquen", "usaquen norte"],
+        "lat": 4.7059,
+        "lng": -74.0308,
+    },
+    {
+        "code": "chapinero",
+        "name": "Chapinero",
+        "aliases": ["chapinero", "chapinero alto"],
+        "lat": 4.6486,
+        "lng": -74.0628,
+    },
+    {
+        "code": "santa_fe",
+        "name": "Santa Fe",
+        "aliases": ["santa fe", "santafe"],
+        "lat": 4.6036,
+        "lng": -74.0724,
+    },
+    {
+        "code": "san_cristobal",
+        "name": "San Cristobal",
+        "aliases": ["san cristobal", "san cristobal sur"],
+        "lat": 4.5685,
+        "lng": -74.0831,
+    },
+    {
+        "code": "usme",
+        "name": "Usme",
+        "aliases": ["usme"],
+        "lat": 4.4774,
+        "lng": -74.1178,
+    },
+    {
+        "code": "tunjuelito",
+        "name": "Tunjuelito",
+        "aliases": ["tunjuelito"],
+        "lat": 4.5804,
+        "lng": -74.1305,
+    },
+    {
+        "code": "bosa",
+        "name": "Bosa",
+        "aliases": ["bosa"],
+        "lat": 4.6158,
+        "lng": -74.1946,
+    },
+    {
+        "code": "kennedy",
+        "name": "Kennedy",
+        "aliases": ["kennedy", "ciudad kennedy"],
+        "lat": 4.6267,
+        "lng": -74.1512,
+    },
+    {
+        "code": "fontibon",
+        "name": "Fontibon",
+        "aliases": ["fontibon", "fontibon aeropuerto"],
+        "lat": 4.6784,
+        "lng": -74.1425,
+    },
+    {
+        "code": "engativa",
+        "name": "Engativa",
+        "aliases": ["engativa", "engativa pueblo"],
+        "lat": 4.6953,
+        "lng": -74.1129,
+    },
+    {
+        "code": "suba",
+        "name": "Suba",
+        "aliases": ["suba"],
+        "lat": 4.7473,
+        "lng": -74.0842,
+    },
+    {
+        "code": "barrios_unidos",
+        "name": "Barrios Unidos",
+        "aliases": ["barrios unidos"],
+        "lat": 4.6694,
+        "lng": -74.0742,
+    },
+    {
+        "code": "teusaquillo",
+        "name": "Teusaquillo",
+        "aliases": ["teusaquillo"],
+        "lat": 4.6387,
+        "lng": -74.0918,
+    },
+    {
+        "code": "los_martires",
+        "name": "Los Martires",
+        "aliases": ["los martires", "martires"],
+        "lat": 4.6038,
+        "lng": -74.0911,
+    },
+    {
+        "code": "antonio_narino",
+        "name": "Antonio Narino",
+        "aliases": ["antonio narino"],
+        "lat": 4.5894,
+        "lng": -74.1019,
+    },
+    {
+        "code": "puente_aranda",
+        "name": "Puente Aranda",
+        "aliases": ["puente aranda"],
+        "lat": 4.6169,
+        "lng": -74.1083,
+    },
+    {
+        "code": "la_candelaria",
+        "name": "La Candelaria",
+        "aliases": ["la candelaria", "candelaria"],
+        "lat": 4.5962,
+        "lng": -74.0733,
+    },
+    {
+        "code": "rafael_uribe_uribe",
+        "name": "Rafael Uribe Uribe",
+        "aliases": ["rafael uribe uribe", "rafael uribe"],
+        "lat": 4.5653,
+        "lng": -74.1065,
+    },
+    {
+        "code": "ciudad_bolivar",
+        "name": "Ciudad Bolivar",
+        "aliases": ["ciudad bolivar", "cd bolivar"],
+        "lat": 4.5307,
+        "lng": -74.1525,
+    },
+    {
+        "code": "sumapaz",
+        "name": "Sumapaz",
+        "aliases": ["sumapaz"],
+        "lat": 4.2503,
+        "lng": -74.2834,
+    },
+]
+
+BOGOTA_LOCALITIES_BY_CODE = {row["code"]: row for row in BOGOTA_LOCALITIES}
+BOGOTA_LOCALITY_CODES = set(BOGOTA_LOCALITIES_BY_CODE.keys())
+
+COURIER_COLOR_PALETTE = [
+    "#f97316",
+    "#0ea5e9",
+    "#22c55e",
+    "#eab308",
+    "#ec4899",
+    "#a855f7",
+    "#14b8a6",
+    "#f43f5e",
+    "#6366f1",
+    "#84cc16",
+]
+
+LOCALITIES_GEOJSON_URL = (
+    "https://raw.githubusercontent.com/NataliaGarzon/Localidades/master/"
+    "poligonos-localidades.geojson"
+)
+
 
 def build_openai_fallback_turn(ai_state: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -655,12 +819,69 @@ def normalize_lookup_key(text: str) -> str:
     return re.sub(r"\s+", " ", translated).strip()
 
 
+def normalize_locality_code(value: Any) -> str:
+    normalized = normalize_lookup_key(str(value or ""))
+    if not normalized:
+        return ""
+    return normalized.replace(" ", "_")
+
+
+def courier_color_for_id(courier_id: str) -> str:
+    normalized = (courier_id or "").strip()
+    if not normalized:
+        return "#475569"
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+    palette_index = int(digest[:2], 16) % len(COURIER_COLOR_PALETTE)
+    return COURIER_COLOR_PALETTE[palette_index]
+
+
+def resolve_bogota_locality(value: Any) -> dict[str, Any] | None:
+    normalized_text = normalize_lookup_key(str(value or ""))
+    if not normalized_text:
+        return None
+
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for row in BOGOTA_LOCALITIES:
+        aliases = [row["name"], row["code"], *row.get("aliases", [])]
+        for alias in aliases:
+            alias_key = normalize_lookup_key(str(alias or ""))
+            if not alias_key:
+                continue
+            if normalized_text == alias_key:
+                candidates.append((len(alias_key) + 200, row))
+                continue
+            if f" {alias_key} " in f" {normalized_text} ":
+                candidates.append((len(alias_key), row))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
 def normalize_phone_lookup(value: Any) -> str:
     digits = re.sub(r"\D+", "", str(value or ""))
     if not digits:
         return ""
     if len(digits) > 10:
         return digits[-10:]
+    return digits
+
+
+def normalize_courier_phone_value(value: Any) -> str:
+    raw_text = str(value or "").strip()
+    if not raw_text:
+        return ""
+
+    compact = re.sub(r"\s+", "", raw_text)
+    has_plus_prefix = compact.startswith("+")
+    digits = re.sub(r"\D+", "", compact)
+    if len(digits) < 7:
+        return ""
+
+    if has_plus_prefix:
+        return f"+{digits}"
     return digits
 
 
@@ -2764,6 +2985,10 @@ def build_dashboard_context() -> dict[str, Any]:
         [],
     )
     couriers = safe_fetch(lambda: supabase.list_active_couriers(limit=2000), [])
+    locality_coverage = safe_fetch(
+        lambda: supabase.list_courier_locality_coverage(limit=400),
+        [],
+    )
     requests_rows = safe_fetch(lambda: supabase.list_requests(limit=4000), [])
     conversations = safe_fetch(lambda: supabase.list_recent_conversations(limit=300), [])
     messages = safe_fetch(lambda: supabase.list_recent_messages(limit=500), [])
@@ -2829,6 +3054,8 @@ def build_dashboard_context() -> dict[str, Any]:
     clients_with_courier = 0
     courier_counter: Counter[str] = Counter()
     zone_counter: Counter[str] = Counter()
+    locality_client_counter: Counter[str] = Counter()
+    locality_clients_by_courier_counter: Counter[str] = Counter()
     request_count_by_client: Counter[str] = Counter()
     sample_count_by_client: Counter[str] = Counter()
     latest_request_by_client: dict[str, str] = {}
@@ -2892,11 +3119,105 @@ def build_dashboard_context() -> dict[str, Any]:
             {
                 "id": courier_id,
                 "name": courier_name,
+                "phone": row.get("phone") or "-",
                 "availability": row.get("availability") or "available",
+                "color": courier_color_for_id(courier_id),
             }
         )
 
     couriers_options.sort(key=lambda row: str(row.get("name") or ""))
+
+    locality_coverage_rows = ensure_dict_rows(locality_coverage)
+    locality_coverage_by_code: dict[str, dict[str, Any]] = {}
+    locality_coverage_by_name: dict[str, dict[str, Any]] = {}
+    localities_by_courier: dict[str, list[str]] = {}
+    for row in locality_coverage_rows:
+        locality_code = normalize_locality_code(row.get("locality_code"))
+        locality_name = str(row.get("locality_name") or "").strip()
+        if locality_code and locality_code not in locality_coverage_by_code:
+            locality_coverage_by_code[locality_code] = row
+        locality_name_key = normalize_lookup_key(locality_name)
+        if locality_name_key and locality_name_key not in locality_coverage_by_name:
+            locality_coverage_by_name[locality_name_key] = row
+
+        courier_id = str(row.get("courier_id") or "").strip()
+        if courier_id and locality_name:
+            localities_by_courier.setdefault(courier_id, []).append(locality_name)
+
+    localities_rows: list[dict[str, Any]] = []
+    coverage_map_points: list[dict[str, Any]] = []
+    for locality in BOGOTA_LOCALITIES:
+        locality_code = locality["code"]
+        coverage_row = locality_coverage_by_code.get(locality_code)
+        if not coverage_row:
+            coverage_row = locality_coverage_by_name.get(normalize_lookup_key(locality["name"]))
+
+        courier_payload = (
+            coverage_row.get("couriers")
+            if isinstance(coverage_row, dict) and isinstance(coverage_row.get("couriers"), dict)
+            else {}
+        )
+        assigned_courier_id = str(
+            ((coverage_row or {}).get("courier_id") if isinstance(coverage_row, dict) else "")
+            or courier_payload.get("id")
+            or ""
+        ).strip()
+        assigned_courier_name = str(courier_payload.get("name") or "").strip()
+
+        point_color = courier_color_for_id(assigned_courier_id)
+        if not assigned_courier_id:
+            point_color = "#475569"
+
+        localities_rows.append(
+            {
+                "locality_code": locality_code,
+                "locality_name": locality["name"],
+                "assigned_courier_id": assigned_courier_id,
+                "assigned_courier_name": assigned_courier_name or "Sin asignar",
+                "assigned_courier_phone": str(courier_payload.get("phone") or "").strip(),
+                "is_assigned": bool(assigned_courier_id),
+                "coverage_state": "assigned" if assigned_courier_id else "pending",
+                "map_color": point_color,
+            }
+        )
+        coverage_map_points.append(
+            {
+                "locality_code": locality_code,
+                "locality_name": locality["name"],
+                "lat": locality["lat"],
+                "lng": locality["lng"],
+                "courier_id": assigned_courier_id,
+                "courier_name": assigned_courier_name or "Sin asignar",
+                "color": point_color,
+                "is_assigned": bool(assigned_courier_id),
+            }
+        )
+
+    localities_rows.sort(key=lambda row: str(row.get("locality_name") or ""))
+
+    couriers_rows: list[dict[str, Any]] = []
+    for courier in couriers_options:
+        courier_id = str(courier.get("id") or "").strip()
+        assigned_localities = sorted(
+            localities_by_courier.get(courier_id, []),
+            key=normalize_lookup_key,
+        )
+        couriers_rows.append(
+            {
+                "id": courier_id,
+                "name": courier.get("name") or "-",
+                "phone": str(courier.get("phone") or "").strip(),
+                "availability": courier.get("availability") or "available",
+                "color": courier.get("color") or courier_color_for_id(courier_id),
+                "coverage_count": len(assigned_localities),
+                "clients_count_from_coverage": locality_clients_by_courier_counter.get(courier_id, 0),
+                "phone_missing": not bool(normalize_phone_lookup(courier.get("phone"))),
+                "localities": assigned_localities,
+                "localities_text": ", ".join(assigned_localities)
+                if assigned_localities
+                else "Sin zonas asignadas",
+            }
+        )
 
     clients_by_id = {
         str(client.get("id") or "").strip(): client
@@ -2926,6 +3247,9 @@ def build_dashboard_context() -> dict[str, Any]:
             or "Sin zona"
         ).strip()
         zone_counter[zone] += 1
+        locality = resolve_bogota_locality(zone)
+        if locality:
+            locality_client_counter[locality["code"]] += 1
 
         assignment = assignment_from_client(client)
 
@@ -2934,6 +3258,26 @@ def build_dashboard_context() -> dict[str, Any]:
             courier_data = assignment.get("couriers")
             courier_name = courier_data.get("name") if courier_data else "Sin mensajero"
             courier_counter[courier_name or "Sin mensajero"] += 1
+
+    for locality_row in localities_rows:
+        locality_code = str(locality_row.get("locality_code") or "")
+        clients_in_locality = locality_client_counter.get(locality_code, 0)
+        locality_row["clients_count"] = clients_in_locality
+
+        assigned_courier_id = str(locality_row.get("assigned_courier_id") or "").strip()
+        if assigned_courier_id:
+            locality_clients_by_courier_counter[assigned_courier_id] += clients_in_locality
+
+    for map_point in coverage_map_points:
+        locality_code = str(map_point.get("locality_code") or "")
+        map_point["clients_count"] = locality_client_counter.get(locality_code, 0)
+
+    for courier_row in couriers_rows:
+        courier_id = str(courier_row.get("id") or "").strip()
+        courier_row["clients_count_from_coverage"] = locality_clients_by_courier_counter.get(
+            courier_id,
+            0,
+        )
 
     for row in requests_rows:
         client_id = row.get("client_id")
@@ -3208,6 +3552,109 @@ def build_dashboard_context() -> dict[str, Any]:
 
     catalog_rows.sort(key=lambda row: str(row.get("analysis_code") or ""))
 
+    localities_assigned = len([row for row in localities_rows if row.get("is_assigned")])
+    localities_total = len(localities_rows)
+    localities_pending = max(localities_total - localities_assigned, 0)
+    coverage_rate = round((localities_assigned / localities_total) * 100, 1) if localities_total else 0.0
+    couriers_with_coverage = len(
+        {
+            str(row.get("assigned_courier_id") or "").strip()
+            for row in localities_rows
+            if str(row.get("assigned_courier_id") or "").strip()
+        }
+    )
+    clients_in_catalog_localities = sum(locality_client_counter.values())
+    clients_in_assigned_localities = sum(
+        int(row.get("clients_count") or 0)
+        for row in localities_rows
+        if row.get("is_assigned")
+    )
+    clients_in_unassigned_localities = max(
+        clients_in_catalog_localities - clients_in_assigned_localities,
+        0,
+    )
+    localities_with_clients_without_coverage = len(
+        [
+            row
+            for row in localities_rows
+            if not row.get("is_assigned") and int(row.get("clients_count") or 0) > 0
+        ]
+    )
+    couriers_without_phone = len([row for row in couriers_rows if row.get("phone_missing")])
+
+    courier_load_leader: dict[str, Any] = {}
+    if couriers_rows:
+        courier_load_leader = max(
+            couriers_rows,
+            key=lambda row: int(row.get("clients_count_from_coverage") or 0),
+        )
+    busiest_courier_name = str(courier_load_leader.get("name") or "-")
+    busiest_courier_clients = int(courier_load_leader.get("clients_count_from_coverage") or 0)
+
+    motorizados_alerts: list[dict[str, Any]] = []
+    if localities_pending > 0:
+        motorizados_alerts.append(
+            {
+                "level": "warning",
+                "title": "Hay localidades sin cobertura",
+                "detail": (
+                    f"Tienes {localities_pending} localidades sin motorizado. "
+                    "Los clientes nuevos de esas zonas quedaran sin asignar."
+                ),
+            }
+        )
+
+    if clients_in_unassigned_localities > 0:
+        motorizados_alerts.append(
+            {
+                "level": "danger",
+                "title": "Clientes en riesgo operativo",
+                "detail": (
+                    f"{clients_in_unassigned_localities} clientes actuales estan en "
+                    "localidades sin cobertura configurada."
+                ),
+            }
+        )
+
+    if couriers_without_phone > 0:
+        motorizados_alerts.append(
+            {
+                "level": "warning",
+                "title": "Datos de contacto incompletos",
+                "detail": (
+                    f"{couriers_without_phone} motorizados no tienen telefono valido. "
+                    "Actualizalos para evitar bloqueos en operacion."
+                ),
+            }
+        )
+
+    if not motorizados_alerts:
+        motorizados_alerts.append(
+            {
+                "level": "success",
+                "title": "Cobertura estable",
+                "detail": (
+                    "No se detectan alertas criticas en motorizados. "
+                    "Puedes continuar con ajustes finos de zonas."
+                ),
+            }
+        )
+
+    motorizados_summary = {
+        "coverage_rate": coverage_rate,
+        "total_localities": localities_total,
+        "assigned_localities": localities_assigned,
+        "pending_localities": localities_pending,
+        "clients_in_catalog_localities": clients_in_catalog_localities,
+        "clients_in_assigned_localities": clients_in_assigned_localities,
+        "clients_in_unassigned_localities": clients_in_unassigned_localities,
+        "localities_with_clients_without_coverage": localities_with_clients_without_coverage,
+        "couriers_with_coverage": couriers_with_coverage,
+        "couriers_without_phone": couriers_without_phone,
+        "busiest_courier_name": busiest_courier_name,
+        "busiest_courier_clients": busiest_courier_clients,
+    }
+
     summary_cards = {
         "total_clients": total_clients,
         "clients_with_courier": clients_with_courier,
@@ -3223,6 +3670,10 @@ def build_dashboard_context() -> dict[str, Any]:
         "catalog_tests": len(catalog),
         "total_samples": len(samples),
         "analysis_active_types": len(analysis_counter),
+        "localities_total": localities_total,
+        "localities_assigned": localities_assigned,
+        "localities_pending": localities_pending,
+        "couriers_with_coverage": couriers_with_coverage,
     }
 
     funnel_stages = [
@@ -3499,6 +3950,24 @@ def build_dashboard_context() -> dict[str, Any]:
         "catalog_preview": catalog[:80],
         "clients_rows": clients_rows,
         "couriers_options": couriers_options,
+        "couriers_rows": couriers_rows,
+        "localities_rows": localities_rows,
+        "coverage_map_points": coverage_map_points,
+        "localities_geojson_url": LOCALITIES_GEOJSON_URL,
+        "coverage_summary": {
+            "total_localities": localities_total,
+            "assigned_localities": localities_assigned,
+            "pending_localities": localities_pending,
+            "couriers_with_coverage": couriers_with_coverage,
+            "coverage_rate": coverage_rate,
+            "clients_in_catalog_localities": clients_in_catalog_localities,
+            "clients_in_assigned_localities": clients_in_assigned_localities,
+            "clients_in_unassigned_localities": clients_in_unassigned_localities,
+            "localities_with_clients_without_coverage": localities_with_clients_without_coverage,
+            "couriers_without_phone": couriers_without_phone,
+        },
+        "motorizados_summary": motorizados_summary,
+        "motorizados_alerts": motorizados_alerts,
         "client_type_options": CLIENT_TYPE_OPTIONS,
         "vat_regime_options": VAT_REGIME_OPTIONS,
         "request_priority_options": [
@@ -5245,6 +5714,18 @@ def clients_page() -> Any:
     )
 
 
+@app.get("/motorizados")
+@login_required
+def motorizados_page() -> Any:
+    context = build_dashboard_context()
+    return render_template(
+        "dashboard.html",
+        context=context,
+        username=session.get("username"),
+        active_tab="motorizados",
+    )
+
+
 @app.get("/muestras")
 @login_required
 def samples_page() -> Any:
@@ -5492,6 +5973,118 @@ def dashboard_update_client_assignment() -> Any:
         )
 
     return jsonify({"ok": True, "client_id": client_id, "courier_id": courier_id or None})
+
+
+@app.post("/api/dashboard/courier-phone")
+@login_required
+def dashboard_update_courier_phone() -> Any:
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid payload"}), 400
+
+    courier_id = str(payload.get("courier_id") or "").strip()
+    phone = normalize_courier_phone_value(payload.get("phone"))
+
+    if not courier_id:
+        return jsonify({"error": "Missing courier_id"}), 400
+    if not phone:
+        return jsonify({"error": "Invalid phone"}), 400
+
+    couriers = safe_fetch(lambda: supabase.list_active_couriers(limit=2000), [])
+    valid_courier_ids = {
+        str(row.get("id") or "").strip()
+        for row in ensure_dict_rows(couriers)
+        if str(row.get("id") or "").strip()
+    }
+    if valid_courier_ids and courier_id not in valid_courier_ids:
+        return jsonify({"error": "Invalid courier_id"}), 400
+
+    try:
+        supabase.update_rows(
+            "couriers",
+            {"id": f"eq.{courier_id}"},
+            {
+                "phone": phone,
+                "updated_at": datetime.now().isoformat(),
+            },
+        )
+    except httpx.HTTPStatusError as exc:
+        response_text = (exc.response.text or "").lower()
+        if exc.response.status_code in {400, 409} and (
+            "duplicate" in response_text or "couriers_phone_key" in response_text
+        ):
+            return jsonify({"error": "Phone already exists for another courier"}), 409
+
+        return (
+            jsonify(
+                {
+                    "error": "Unable to update courier phone",
+                    "status_code": exc.response.status_code,
+                }
+            ),
+            503,
+        )
+
+    return jsonify({"ok": True, "courier_id": courier_id, "phone": phone})
+
+
+@app.post("/api/dashboard/courier-locality-assignment")
+@login_required
+def dashboard_update_courier_locality_assignment() -> Any:
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid payload"}), 400
+
+    locality_code = normalize_locality_code(payload.get("locality_code"))
+    courier_id = str(payload.get("courier_id") or "").strip()
+
+    if not locality_code:
+        return jsonify({"error": "Missing locality_code"}), 400
+    if locality_code not in BOGOTA_LOCALITY_CODES:
+        return jsonify({"error": "Unsupported locality_code"}), 400
+
+    if courier_id:
+        couriers = safe_fetch(lambda: supabase.list_active_couriers(limit=2000), [])
+        valid_courier_ids = {
+            str(row.get("id") or "").strip()
+            for row in ensure_dict_rows(couriers)
+            if str(row.get("id") or "").strip()
+        }
+        if valid_courier_ids and courier_id not in valid_courier_ids:
+            return jsonify({"error": "Invalid courier_id"}), 400
+
+    assigned_by = f"dashboard:{session.get('username') or 'operator'}"
+    locality_name = BOGOTA_LOCALITIES_BY_CODE[locality_code]["name"]
+
+    try:
+        if courier_id:
+            supabase.upsert_courier_locality_coverage(
+                locality_code=locality_code,
+                locality_name=locality_name,
+                courier_id=courier_id,
+                assigned_by=assigned_by,
+            )
+        else:
+            supabase.delete_courier_locality_coverage(locality_code)
+    except httpx.HTTPStatusError as exc:
+        return (
+            jsonify(
+                {
+                    "error": "Unable to update locality coverage",
+                    "status_code": exc.response.status_code,
+                }
+            ),
+            503,
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "locality_code": locality_code,
+            "locality_name": locality_name,
+            "courier_id": courier_id or None,
+        }
+    )
 
 
 @app.post("/api/dashboard/request-operation")
@@ -5789,6 +6382,9 @@ def new_client_registration_webhook() -> Any:
         ("Direccion y ubicacion en Google Maps", "Direccion", "Direccion, Barrio y Localidad"),
     )
     locality = extract_form_value(payload, ("Barrio y Localidad", "Barrio y localidad"))
+    resolved_locality = resolve_bogota_locality(locality) or resolve_bogota_locality(address)
+    locality_code = str((resolved_locality or {}).get("code") or "").strip()
+    locality_name = str((resolved_locality or {}).get("name") or locality or "").strip()
     phone = extract_form_value(payload, ("N Celular", "Celular o Telefono", "N Celular de comunicacion"))
     email = extract_form_value(payload, ("Email", "Correo o WhatsApp", "Correo"))
     tax_id = extract_form_value(payload, ("Rut", "Informacion en RUT", "NIT", "Nif"))
@@ -5870,7 +6466,7 @@ def new_client_registration_webhook() -> Any:
         "is_registered": True,
         "is_new_client": True,
         "address": address or None,
-        "locality": locality or None,
+        "locality": locality_name or None,
         "phone": phone or None,
         "email": email or None,
         "payment_policy": None,
@@ -5898,7 +6494,7 @@ def new_client_registration_webhook() -> Any:
         "is_registered": True,
         "is_new_client": True,
         "address": address or None,
-        "locality": locality or None,
+        "locality": locality_name or None,
         "phone": phone or None,
         "email": email or None,
         "payment_policy": None,
@@ -5917,6 +6513,17 @@ def new_client_registration_webhook() -> Any:
         "professional_name": professional_name or None,
         "professional_card": professional_card or None,
         "source_sheet": "google_form_webhook",
+    }
+
+    registered_client_id = ""
+    auto_assignment = {
+        "attempted": False,
+        "assigned": False,
+        "locality_code": locality_code or None,
+        "locality_name": locality_name or None,
+        "courier_id": None,
+        "courier_name": None,
+        "reason": "pending",
     }
 
     try:
@@ -5953,20 +6560,68 @@ def new_client_registration_webhook() -> Any:
                 "tax_id": tax_id or None,
                 "phone": phone or None,
                 "address": address,
-                "city": locality or None,
-                "zone": locality or None,
+                "city": locality_name or None,
+                "zone": locality_name or None,
                 "billing_type": "cash",
                 "is_active": True,
             }
             if phone:
-                supabase.insert_rows(
+                created_clients = supabase.insert_rows(
                     "clients",
                     [base_client_payload],
                     upsert=True,
                     on_conflict="phone",
                 )
             else:
-                supabase.insert_rows("clients", [base_client_payload])
+                created_clients = supabase.insert_rows("clients", [base_client_payload])
+
+            first_client = created_clients[0] if created_clients else {}
+            registered_client_id = str((first_client or {}).get("id") or "").strip()
+            if not registered_client_id and phone:
+                matched_client = supabase.get_client_by_phone(phone)
+                registered_client_id = str((matched_client or {}).get("id") or "").strip()
+
+            if locality_code and registered_client_id:
+                auto_assignment["attempted"] = True
+                try:
+                    locality_assignment = supabase.get_courier_for_locality_code(locality_code)
+                except httpx.HTTPStatusError:
+                    auto_assignment["reason"] = "coverage_table_not_ready"
+                else:
+                    assigned_courier_id = str(
+                        (locality_assignment or {}).get("courier_id") or ""
+                    ).strip()
+                    courier_payload = (
+                        (locality_assignment or {}).get("couriers")
+                        if isinstance((locality_assignment or {}).get("couriers"), dict)
+                        else {}
+                    )
+                    if assigned_courier_id:
+                        try:
+                            supabase.upsert_client_assignment(
+                                client_id=registered_client_id,
+                                courier_id=assigned_courier_id,
+                                assigned_by="auto_locality_new_client",
+                            )
+                        except httpx.HTTPStatusError:
+                            auto_assignment["reason"] = "assignment_write_failed"
+                        else:
+                            auto_assignment.update(
+                                {
+                                    "assigned": True,
+                                    "courier_id": assigned_courier_id,
+                                    "courier_name": courier_payload.get("name"),
+                                    "reason": "assigned_by_locality_coverage",
+                                }
+                            )
+                    else:
+                        auto_assignment["reason"] = "locality_without_courier_coverage"
+            elif not locality_code:
+                auto_assignment["reason"] = "locality_not_recognized"
+            elif not registered_client_id:
+                auto_assignment["reason"] = "client_id_not_available"
+        else:
+            auto_assignment["reason"] = "missing_address"
     except httpx.HTTPStatusError as exc:
         return (
             jsonify(
@@ -5984,6 +6639,9 @@ def new_client_registration_webhook() -> Any:
             "clinic_key": clinic_key,
             "clinic_name": clinic_name,
             "registered_in_clients": bool(address),
+            "locality_code": locality_code or None,
+            "locality_name": locality_name or None,
+            "auto_assignment": auto_assignment,
         }
     )
 

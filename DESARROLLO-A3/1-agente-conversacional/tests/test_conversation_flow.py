@@ -10,12 +10,15 @@ class FakeSupabase:
         self.request_events: list[dict] = []
         self.requests_by_id: dict[str, dict] = {}
         self.request_counter = 0
+        self.client_counter = 0
         self.clients_by_tax: dict[str, dict] = {}
         self.clients: list[dict] = []
         self.knowledge_clients: list[dict] = []
         self.knowledge_sample_events: dict[str, list[dict]] = {}
         self.table_rows: dict[str, list[dict]] = {}
         self.client_courier_map: dict[str, dict] = {}
+        self.couriers_by_id: dict[str, dict] = {}
+        self.locality_coverage_by_code: dict[str, dict] = {}
         self.catalog_tests: list[dict] = []
 
     def get_client_by_phone(self, phone: str):
@@ -90,6 +93,44 @@ class FakeSupabase:
     def get_assigned_courier(self, client_id: str):
         return self.client_courier_map.get(client_id)
 
+    def get_courier_for_locality_code(self, locality_code: str):
+        coverage = self.locality_coverage_by_code.get((locality_code or "").strip())
+        if not coverage:
+            return None
+        courier_id = str(coverage.get("courier_id") or "").strip()
+        courier = self.couriers_by_id.get(courier_id)
+        return {
+            "locality_code": coverage.get("locality_code"),
+            "locality_name": coverage.get("locality_name"),
+            "courier_id": courier_id,
+            "couriers": courier,
+        }
+
+    def upsert_client_assignment(self, *, client_id: str, courier_id: str | None, assigned_by: str = "dashboard_manual"):
+        _ = assigned_by
+        self.table_rows.setdefault("client_courier_assignment", [])
+        self.table_rows["client_courier_assignment"] = [
+            row
+            for row in self.table_rows["client_courier_assignment"]
+            if str(row.get("client_id") or "").strip() != client_id
+        ]
+        if not courier_id:
+            self.client_courier_map.pop(client_id, None)
+            return
+        self.table_rows["client_courier_assignment"].append(
+            {
+                "client_id": client_id,
+                "courier_id": courier_id,
+            }
+        )
+        courier_row = self.couriers_by_id.get(courier_id)
+        if isinstance(courier_row, dict):
+            self.client_courier_map[client_id] = dict(courier_row)
+
+    def list_active_couriers(self, limit: int = 2000):
+        rows = [dict(row) for row in self.couriers_by_id.values()]
+        return rows[:limit]
+
     def list_catalog_tests(self, limit: int = 3000):
         return self.catalog_tests[:limit]
 
@@ -107,10 +148,25 @@ class FakeSupabase:
                     ]
                     self.knowledge_clients.append(dict(row))
         for row in rows:
-            bucket.append(dict(row))
+            payload = dict(row)
             if table == "clients":
-                self.clients.append(dict(row))
-        return rows
+                self.client_counter += 1
+                payload.setdefault("id", f"client-{self.client_counter}")
+            bucket.append(payload)
+            if table == "clients":
+                self.clients.append(dict(payload))
+            if table == "client_courier_assignment":
+                client_id = str(payload.get("client_id") or "").strip()
+                courier_id = str(payload.get("courier_id") or "").strip()
+                if client_id and courier_id:
+                    courier_row = self.couriers_by_id.get(courier_id)
+                    if isinstance(courier_row, dict):
+                        self.client_courier_map[client_id] = dict(courier_row)
+            if table == "courier_locality_coverage":
+                locality_code = str(payload.get("locality_code") or "").strip()
+                if locality_code:
+                    self.locality_coverage_by_code[locality_code] = dict(payload)
+        return [dict(item) for item in bucket[-len(rows):]] if rows else []
 
 
 class FakeTelegram:
@@ -1517,6 +1573,78 @@ class ConversationFlowTests(unittest.TestCase):
         self.assertTrue(self.fake_supabase.table_rows.get("clients_a3_knowledge"))
         self.assertTrue(self.fake_supabase.table_rows.get("clients_a3_professionals"))
         self.assertTrue(self.fake_supabase.table_rows.get("clients"))
+
+    def test_new_client_registration_auto_assigns_courier_when_locality_has_coverage(self) -> None:
+        main.settings.new_client_form_webhook_secret = "secret-a3"
+        client = main.app.test_client()
+
+        self.fake_supabase.couriers_by_id["courier-22"] = {
+            "id": "courier-22",
+            "name": "Juan Motos",
+            "phone": "3000000222",
+            "availability": "available",
+            "is_active": True,
+        }
+        self.fake_supabase.locality_coverage_by_code["kennedy"] = {
+            "locality_code": "kennedy",
+            "locality_name": "Kennedy",
+            "courier_id": "courier-22",
+        }
+
+        payload = {
+            "Nombre de la veterinaria o medico veterinario": "Clinica Vet Sur",
+            "Direccion y ubicacion en Google Maps": "Cra 71 # 37-10",
+            "Barrio y Localidad": "Kennedy",
+            "N Celular": "3001112222",
+            "Rut": "900111222",
+        }
+
+        response = client.post(
+            "/webhooks/new-client-registration",
+            json=payload,
+            headers={"X-New-Client-Secret": "secret-a3"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        assert isinstance(body, dict)
+        self.assertTrue(body.get("ok"))
+        self.assertEqual(body.get("locality_code"), "kennedy")
+        auto_assignment = body.get("auto_assignment") or {}
+        self.assertTrue(auto_assignment.get("assigned"))
+        self.assertEqual(auto_assignment.get("courier_id"), "courier-22")
+
+        assignment_rows = self.fake_supabase.table_rows.get("client_courier_assignment") or []
+        self.assertEqual(len(assignment_rows), 1)
+        self.assertEqual(assignment_rows[0].get("courier_id"), "courier-22")
+
+    def test_new_client_registration_leaves_unassigned_when_locality_has_no_coverage(self) -> None:
+        main.settings.new_client_form_webhook_secret = "secret-a3"
+        client = main.app.test_client()
+
+        payload = {
+            "Nombre de la veterinaria o medico veterinario": "Clinica Vet Norte",
+            "Direccion y ubicacion en Google Maps": "Cra 10 # 120-40",
+            "Barrio y Localidad": "Usaquen",
+            "N Celular": "3009998888",
+        }
+
+        response = client.post(
+            "/webhooks/new-client-registration",
+            json=payload,
+            headers={"X-New-Client-Secret": "secret-a3"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        assert isinstance(body, dict)
+        self.assertTrue(body.get("ok"))
+        auto_assignment = body.get("auto_assignment") or {}
+        self.assertFalse(auto_assignment.get("assigned"))
+        self.assertEqual(auto_assignment.get("reason"), "locality_without_courier_coverage")
+
+        assignment_rows = self.fake_supabase.table_rows.get("client_courier_assignment") or []
+        self.assertEqual(assignment_rows, [])
 
     def test_new_client_registration_webhook_rejects_invalid_secret(self) -> None:
         main.settings.new_client_form_webhook_secret = "secret-a3"

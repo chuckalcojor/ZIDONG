@@ -7,8 +7,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='20260415-contract-v4') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='20260418-motorizados-v2') }}">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="theme-dark dashboard-page">
@@ -31,6 +33,7 @@
           <a href="{{ url_for('dashboard') }}" class="menu-link {{ 'active' if active_tab == 'dashboard' else '' }}"><i data-lucide="layout-dashboard"></i>Tablero</a>
           <a href="{{ url_for('requests_page') }}" class="menu-link {{ 'active' if active_tab == 'solicitudes' else '' }}"><i data-lucide="clipboard-list"></i>Solicitudes</a>
           <a href="{{ url_for('clients_page') }}" class="menu-link {{ 'active' if active_tab == 'clientes' else '' }}"><i data-lucide="users"></i>Clientes</a>
+          <a href="{{ url_for('motorizados_page') }}" class="menu-link {{ 'active' if active_tab == 'motorizados' else '' }}"><i data-lucide="bike"></i>Motorizados</a>
           <a href="{{ url_for('samples_page') }}" class="menu-link {{ 'active' if active_tab == 'muestras' else '' }}"><i data-lucide="test-tube-2"></i>Muestras</a>
           <a href="{{ url_for('analysis_page') }}" class="menu-link {{ 'active' if active_tab == 'analisis' else '' }}"><i data-lucide="activity"></i>Analisis</a>
           <a href="{{ url_for('flow_page') }}" class="menu-link {{ 'active' if active_tab == 'flujo' else '' }}"><i data-lucide="git-branch"></i>Flujo</a>
@@ -533,6 +536,209 @@
         </section>
         {% endif %}
 
+        {% if active_tab == 'motorizados' %}
+        <section class="section-head">
+          <h1>Motorizados</h1>
+          <p>Panel operativo para cobertura por localidad, asignacion automatica y salud del equipo de ruta.</p>
+        </section>
+
+        <section class="kpi-grid compact mot-kpi-grid">
+          <article class="kpi-card">
+            <span>Cobertura de localidades</span>
+            <strong>{{ context.motorizados_summary.coverage_rate }}%</strong>
+            <small class="kpi-delta kpi-delta-up">{{ context.motorizados_summary.assigned_localities }} de {{ context.motorizados_summary.total_localities }} configuradas</small>
+          </article>
+          <article class="kpi-card">
+            <span>Clientes cubiertos por zona</span>
+            <strong>{{ context.motorizados_summary.clients_in_assigned_localities }}</strong>
+            <small class="kpi-delta kpi-delta-up">{{ context.motorizados_summary.clients_in_catalog_localities }} clientes mapeados en Bogota</small>
+          </article>
+          <article class="kpi-card">
+            <span>Clientes en zonas pendientes</span>
+            <strong>{{ context.motorizados_summary.clients_in_unassigned_localities }}</strong>
+            <small class="kpi-delta kpi-delta-down">{{ context.motorizados_summary.localities_with_clients_without_coverage }} localidades con riesgo</small>
+          </article>
+          <article class="kpi-card">
+            <span>Motorizado con mayor carga</span>
+            <strong>{{ context.motorizados_summary.busiest_courier_name }}</strong>
+            <small class="kpi-delta kpi-delta-up">{{ context.motorizados_summary.busiest_courier_clients }} clientes por cobertura</small>
+          </article>
+        </section>
+
+        <section class="mot-alerts-grid">
+          {% for alert in context.motorizados_alerts %}
+          <article class="ops-alert-card ops-alert-{{ alert.level }}">
+            <h4>{{ alert.title }}</h4>
+            <p>{{ alert.detail }}</p>
+          </article>
+          {% endfor %}
+        </section>
+
+        <section class="dashboard-grid motorizados-grid">
+          <article class="panel-card">
+            <div class="panel-head panel-head-inline">
+              <div>
+                <h3>Equipo de motorizados</h3>
+                <p class="panel-caption">Edita telefonos, revisa disponibilidad y distribucion de carga por localidad.</p>
+              </div>
+              <div class="table-toolbar-inline">
+                <label class="project-search" aria-label="Buscar motorizado">
+                  <i data-lucide="search"></i>
+                  <input type="text" class="mot-search-input" data-courier-search-input placeholder="Buscar por nombre o telefono">
+                </label>
+                <span class="table-counter" data-courier-count-pill>0 visibles</span>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="table-motorizados">
+                <thead>
+                  <tr>
+                    <th>Motorizado</th>
+                    <th>Telefono</th>
+                    <th>Disponibilidad</th>
+                    <th>Color</th>
+                    <th>Clientes por cobertura</th>
+                    <th>Localidades</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in context.couriers_rows %}
+                  <tr class="courier-table-row" data-courier-name="{{ row.name|lower }}" data-courier-phone="{{ row.phone|lower }}" data-courier-localities="{{ row.localities_text|lower }}">
+                    <td>
+                      <strong>{{ row.name }}</strong>
+                      <div class="table-subtext">{{ row.coverage_count }} localidades</div>
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        class="cell-input courier-phone-input"
+                        value="{{ row.phone }}"
+                        data-courier-id="{{ row.id }}"
+                        placeholder="Telefono"
+                      >
+                      <small class="save-flag" data-courier-save></small>
+                    </td>
+                    <td>{{ row.availability }}</td>
+                    <td>
+                      <span class="courier-color-swatch" style="--courier-color: {{ row.color }};"></span>
+                      <span class="table-subtext">{{ row.color }}</span>
+                    </td>
+                    <td>
+                      <strong>{{ row.clients_count_from_coverage }}</strong>
+                      <div class="table-subtext">clientes en sus localidades</div>
+                    </td>
+                    <td>{{ row.localities_text }}</td>
+                  </tr>
+                  {% else %}
+                  <tr>
+                    <td colspan="6" class="empty-cell">No hay motorizados activos para configurar.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel-card">
+            <div class="panel-head panel-head-inline">
+              <div>
+                <h3>Cobertura por localidad</h3>
+                <p class="panel-caption">1 localidad = 1 motorizado. Si no hay cobertura, cliente nuevo queda sin asignar.</p>
+              </div>
+              <div class="table-toolbar-stack">
+                <label class="project-search" aria-label="Buscar localidad">
+                  <i data-lucide="search"></i>
+                  <input type="text" class="mot-search-input" data-locality-search-input placeholder="Buscar localidad">
+                </label>
+                <div class="table-filter-row">
+                  <select class="cell-select mot-filter-select" data-locality-status-filter>
+                    <option value="all">Todas</option>
+                    <option value="assigned">Con cobertura</option>
+                    <option value="pending">Sin cobertura</option>
+                  </select>
+                  <select class="cell-select mot-filter-select" data-locality-courier-filter>
+                    <option value="all">Todos los motorizados</option>
+                    {% for courier in context.couriers_options %}
+                    <option value="{{ courier.id }}">{{ courier.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <span class="table-counter" data-locality-count-pill>0 localidades visibles</span>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="table-locality-coverage">
+                <thead>
+                  <tr>
+                    <th>Localidad</th>
+                    <th>Clientes registrados</th>
+                    <th>Motorizado asignado</th>
+                  </tr>
+                </thead>
+                <tbody data-locality-table-body>
+                  {% for row in context.localities_rows %}
+                  <tr
+                    class="locality-table-row"
+                    data-locality-code="{{ row.locality_code }}"
+                    data-locality-name="{{ row.locality_name|lower }}"
+                    data-locality-state="{{ row.coverage_state }}"
+                    data-locality-courier-id="{{ row.assigned_courier_id }}"
+                    data-locality-courier-name="{{ row.assigned_courier_name|lower }}"
+                    data-locality-clients="{{ row.clients_count }}"
+                  >
+                    <td>
+                      <strong>{{ row.locality_name }}</strong>
+                      <div class="table-subtext">
+                        {{ row.locality_code }}
+                        {% if row.is_assigned %}
+                        <span class="coverage-badge coverage-badge-ok">Con cobertura</span>
+                        {% else %}
+                        <span class="coverage-badge coverage-badge-pending">Pendiente</span>
+                        {% endif %}
+                      </div>
+                    </td>
+                    <td>{{ row.clients_count }}</td>
+                    <td>
+                      <select class="cell-select locality-assignment-select" data-locality-code="{{ row.locality_code }}">
+                        <option value="">Sin asignar</option>
+                        {% for courier in context.couriers_options %}
+                        <option value="{{ courier.id }}" data-courier-name="{{ courier.name }}" data-courier-color="{{ courier.color }}" {{ 'selected' if row.assigned_courier_id == courier.id else '' }}>{{ courier.name }}</option>
+                        {% endfor %}
+                      </select>
+                      <small class="save-flag" data-locality-save></small>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <div class="table-pagination" data-locality-pagination>
+              <button type="button" class="ghost-btn ghost-btn-sm" data-locality-prev disabled>
+                <i data-lucide="chevron-left"></i>Anterior
+              </button>
+              <span class="table-counter" data-locality-page-label>Pagina 1 de 1</span>
+              <button type="button" class="ghost-btn ghost-btn-sm" data-locality-next disabled>
+                Siguiente<i data-lucide="chevron-right"></i>
+              </button>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel-card">
+          <div class="panel-head panel-head-inline">
+            <div>
+              <h3>Mapa de cobertura operativa</h3>
+              <p class="panel-caption">Vista por poligonos de localidad con color de motorizado y carga estimada de clientes.</p>
+            </div>
+            <button type="button" class="ghost-btn ghost-btn-sm" data-map-reset>
+              <i data-lucide="locate-fixed"></i>Recentrar mapa
+            </button>
+          </div>
+          <div id="courier-coverage-map" class="courier-coverage-map"></div>
+          <div id="courier-coverage-legend" class="courier-coverage-legend"></div>
+        </section>
+        {% endif %}
+
         {% if active_tab == 'muestras' %}
         {% set use_placeholder_samples = not context.samples %}
         {% set sample_rows_view = context.samples if context.samples else context.sample_placeholder_rows %}
@@ -729,6 +935,8 @@
     </div>
   </div>
 
+  <div class="toast-stack" id="global-toast-stack" aria-live="polite" aria-atomic="true"></div>
+
   <script>
     lucide.createIcons();
 
@@ -738,6 +946,8 @@
     const sampleStatus = {{ context.sample_status | tojson }};
     const serviceAreaLabels = {{ ui_service_area_labels | tojson }};
     const statusLabels = {{ ui_status_labels | tojson }};
+    const coverageMapPoints = {{ context.coverage_map_points | tojson }};
+    const localitiesGeoJsonUrl = {{ context.localities_geojson_url | tojson }};
 
     function labelFromKey(value, fallback = '-') {
       if (!value) return fallback;
@@ -754,6 +964,28 @@
     function labelStatus(value) {
       if (!value) return '-';
       return statusLabels[value] || labelFromKey(value, '-');
+    }
+
+    function showGlobalToast(message, type = 'info') {
+      const stack = document.querySelector('#global-toast-stack');
+      if (!stack || !message) return;
+
+      const toast = document.createElement('article');
+      toast.className = `toast-item toast-${type}`;
+      toast.innerHTML = `
+        <span class="toast-dot" aria-hidden="true"></span>
+        <div class="toast-copy">${message}</div>
+      `;
+
+      stack.appendChild(toast);
+      window.setTimeout(() => {
+        toast.classList.add('toast-exit');
+      }, 2600);
+      window.setTimeout(() => {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast);
+        }
+      }, 3100);
     }
 
     function mountLastUpdatedTime() {
@@ -1324,6 +1556,626 @@
       });
     }
 
+    function mountCourierPhoneEditing() {
+      const controls = document.querySelectorAll('.courier-phone-input');
+      if (!controls.length) return;
+
+      const endpoint = "{{ url_for('dashboard_update_courier_phone') }}";
+
+      function setControlState(control, state) {
+        control.classList.remove('is-saving', 'is-success', 'is-error');
+        if (state) {
+          control.classList.add(state);
+        }
+      }
+
+      function setSaveFlag(row, state, message) {
+        const flag = row.querySelector('[data-courier-save]');
+        if (!flag) return;
+        flag.classList.remove('ok', 'error', 'saving');
+        if (!state) {
+          flag.textContent = '';
+          return;
+        }
+        flag.classList.add(state);
+        flag.textContent = message;
+      }
+
+      async function persist(control) {
+        const row = control.closest('tr');
+        if (!row) return;
+
+        const currentValue = String(control.value || '').trim();
+        const previousValue = control.dataset.lastValue || '';
+        if (currentValue === previousValue) return;
+
+        const courierId = String(control.dataset.courierId || '').trim();
+        if (!courierId) {
+          control.value = previousValue;
+          return;
+        }
+
+        setControlState(control, 'is-saving');
+        setSaveFlag(row, 'saving', 'Guardando...');
+
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              courier_id: courierId,
+              phone: currentValue,
+            }),
+          });
+
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo guardar');
+          }
+
+          control.value = String(data.phone || currentValue);
+          control.dataset.lastValue = String(control.value || '').trim();
+          row.dataset.courierPhone = String(control.value || '').trim().toLowerCase();
+          setControlState(control, 'is-success');
+          setSaveFlag(row, 'ok', 'Guardado');
+          showGlobalToast('Telefono de motorizado actualizado', 'success');
+          document.dispatchEvent(new CustomEvent('motorizados:courier-phone-updated'));
+          setTimeout(() => {
+            setControlState(control, '');
+            setSaveFlag(row, '', '');
+          }, 1400);
+        } catch (error) {
+          control.value = previousValue;
+          setControlState(control, 'is-error');
+          setSaveFlag(row, 'error', 'Error al guardar');
+          showGlobalToast(String((error && error.message) || 'No se pudo guardar telefono'), 'error');
+          console.error(error);
+        }
+      }
+
+      controls.forEach((control) => {
+        control.dataset.lastValue = String(control.value || '').trim();
+        control.addEventListener('blur', () => persist(control));
+        control.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            control.blur();
+          }
+        });
+      });
+    }
+
+    function mountMotorizadosFilters() {
+      const courierRows = Array.from(document.querySelectorAll('.courier-table-row'));
+      const courierSearch = document.querySelector('[data-courier-search-input]');
+      const courierCountPill = document.querySelector('[data-courier-count-pill]');
+
+      function applyCourierFilter() {
+        if (!courierRows.length) return;
+        const query = String((courierSearch && courierSearch.value) || '').trim().toLowerCase();
+        let visibleCount = 0;
+
+        courierRows.forEach((row) => {
+          const name = String(row.dataset.courierName || '');
+          const phone = String(row.dataset.courierPhone || '');
+          const localities = String(row.dataset.courierLocalities || '');
+          const haystack = `${name} ${phone} ${localities}`;
+          const matches = !query || haystack.includes(query);
+          row.style.display = matches ? '' : 'none';
+          if (matches) visibleCount += 1;
+        });
+
+        if (courierCountPill) {
+          courierCountPill.textContent = `${visibleCount} visibles`;
+        }
+      }
+
+      if (courierSearch) {
+        courierSearch.addEventListener('input', applyCourierFilter);
+      }
+
+      const localityRows = Array.from(document.querySelectorAll('.locality-table-row'));
+      const localitySearch = document.querySelector('[data-locality-search-input]');
+      const localityStatusFilter = document.querySelector('[data-locality-status-filter]');
+      const localityCourierFilter = document.querySelector('[data-locality-courier-filter]');
+      const localityCountPill = document.querySelector('[data-locality-count-pill]');
+      const prevButton = document.querySelector('[data-locality-prev]');
+      const nextButton = document.querySelector('[data-locality-next]');
+      const pageLabel = document.querySelector('[data-locality-page-label]');
+
+      const localityState = {
+        page: 1,
+        pageSize: 8,
+        totalPages: 1,
+      };
+
+      function getFilteredLocalityRows() {
+        const query = String((localitySearch && localitySearch.value) || '').trim().toLowerCase();
+        const statusValue = String((localityStatusFilter && localityStatusFilter.value) || 'all').trim();
+        const courierValue = String((localityCourierFilter && localityCourierFilter.value) || 'all').trim();
+
+        return localityRows.filter((row) => {
+          const localityName = String(row.dataset.localityName || '');
+          const localityCode = String(row.dataset.localityCode || '');
+          const courierName = String(row.dataset.localityCourierName || '');
+          const rowState = String(row.dataset.localityState || 'pending');
+          const rowCourierId = String(row.dataset.localityCourierId || '');
+
+          if (statusValue !== 'all' && rowState !== statusValue) {
+            return false;
+          }
+          if (courierValue !== 'all' && rowCourierId !== courierValue) {
+            return false;
+          }
+          if (query) {
+            const haystack = `${localityName} ${localityCode} ${courierName}`;
+            if (!haystack.includes(query)) {
+              return false;
+            }
+          }
+          return true;
+        });
+      }
+
+      function applyLocalityFilters(resetPage = false) {
+        if (!localityRows.length) return;
+        const filteredRows = getFilteredLocalityRows();
+
+        localityState.totalPages = Math.max(1, Math.ceil(filteredRows.length / localityState.pageSize));
+        if (resetPage) {
+          localityState.page = 1;
+        }
+        localityState.page = Math.min(localityState.page, localityState.totalPages);
+
+        const start = (localityState.page - 1) * localityState.pageSize;
+        const end = start + localityState.pageSize;
+        const visibleSet = new Set(filteredRows.slice(start, end));
+
+        localityRows.forEach((row) => {
+          row.style.display = visibleSet.has(row) ? '' : 'none';
+        });
+
+        if (localityCountPill) {
+          localityCountPill.textContent = `${filteredRows.length} localidades visibles`;
+        }
+        if (pageLabel) {
+          pageLabel.textContent = `Pagina ${localityState.page} de ${localityState.totalPages}`;
+        }
+        if (prevButton) {
+          prevButton.disabled = localityState.page <= 1;
+        }
+        if (nextButton) {
+          nextButton.disabled = localityState.page >= localityState.totalPages;
+        }
+      }
+
+      if (localitySearch) {
+        localitySearch.addEventListener('input', () => applyLocalityFilters(true));
+      }
+      if (localityStatusFilter) {
+        localityStatusFilter.addEventListener('change', () => applyLocalityFilters(true));
+      }
+      if (localityCourierFilter) {
+        localityCourierFilter.addEventListener('change', () => applyLocalityFilters(true));
+      }
+      if (prevButton) {
+        prevButton.addEventListener('click', () => {
+          localityState.page = Math.max(1, localityState.page - 1);
+          applyLocalityFilters(false);
+        });
+      }
+      if (nextButton) {
+        nextButton.addEventListener('click', () => {
+          localityState.page = Math.min(localityState.totalPages, localityState.page + 1);
+          applyLocalityFilters(false);
+        });
+      }
+
+      document.addEventListener('motorizados:coverage-updated', () => {
+        applyLocalityFilters(false);
+      });
+      document.addEventListener('motorizados:courier-phone-updated', () => {
+        applyCourierFilter();
+      });
+
+      applyCourierFilter();
+      applyLocalityFilters(true);
+    }
+
+    function mountCourierLocalityAssignment() {
+      const controls = document.querySelectorAll('.locality-assignment-select');
+      if (!controls.length) return;
+
+      const endpoint = "{{ url_for('dashboard_update_courier_locality_assignment') }}";
+
+      function setControlState(control, state) {
+        control.classList.remove('is-saving', 'is-success', 'is-error');
+        if (state) {
+          control.classList.add(state);
+        }
+      }
+
+      function setSaveFlag(row, state, message) {
+        const flag = row.querySelector('[data-locality-save]');
+        if (!flag) return;
+        flag.classList.remove('ok', 'error', 'saving');
+        if (!state) {
+          flag.textContent = '';
+          return;
+        }
+        flag.classList.add(state);
+        flag.textContent = message;
+      }
+
+      function updateRowVisualState(row, control, courierId) {
+        const hasAssignment = Boolean(courierId);
+        const selectedOption = control.selectedOptions[0] || null;
+        const selectedName = hasAssignment
+          ? String((selectedOption && (selectedOption.dataset.courierName || selectedOption.textContent)) || '').trim()
+          : 'Sin asignar';
+
+        row.dataset.localityState = hasAssignment ? 'assigned' : 'pending';
+        row.dataset.localityCourierId = courierId || '';
+        row.dataset.localityCourierName = selectedName.toLowerCase();
+
+        const badge = row.querySelector('.coverage-badge');
+        if (badge) {
+          badge.classList.remove('coverage-badge-ok', 'coverage-badge-pending');
+          if (hasAssignment) {
+            badge.classList.add('coverage-badge-ok');
+            badge.textContent = 'Con cobertura';
+          } else {
+            badge.classList.add('coverage-badge-pending');
+            badge.textContent = 'Pendiente';
+          }
+        }
+
+        const mapPoint = Array.isArray(coverageMapPoints)
+          ? coverageMapPoints.find((item) => String(item.locality_code || '') === String(row.dataset.localityCode || ''))
+          : null;
+        if (mapPoint) {
+          const selectedColor = hasAssignment
+            ? String((selectedOption && selectedOption.dataset.courierColor) || mapPoint.color || '#0ea5e9')
+            : '#475569';
+          mapPoint.courier_id = courierId || '';
+          mapPoint.courier_name = selectedName || 'Sin asignar';
+          mapPoint.color = selectedColor;
+          mapPoint.is_assigned = hasAssignment;
+        }
+      }
+
+      async function persist(control) {
+        const row = control.closest('tr');
+        if (!row) return;
+
+        const currentValue = String(control.value || '').trim();
+        const previousValue = control.dataset.lastValue || '';
+        if (currentValue === previousValue) return;
+
+        const localityCode = control.dataset.localityCode || row.dataset.localityCode || '';
+        if (!localityCode) {
+          control.value = previousValue;
+          return;
+        }
+
+        setControlState(control, 'is-saving');
+        setSaveFlag(row, 'saving', 'Guardando...');
+
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              locality_code: localityCode,
+              courier_id: currentValue,
+            }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo guardar');
+          }
+
+          control.dataset.lastValue = currentValue;
+          updateRowVisualState(row, control, currentValue);
+          setControlState(control, 'is-success');
+          setSaveFlag(row, 'ok', 'Guardado');
+          showGlobalToast('Cobertura de localidad actualizada', 'success');
+          document.dispatchEvent(new CustomEvent('motorizados:coverage-updated', {
+            detail: {
+              locality_code: localityCode,
+              courier_id: currentValue,
+            },
+          }));
+          setTimeout(() => {
+            setControlState(control, '');
+            setSaveFlag(row, '', '');
+          }, 1400);
+        } catch (error) {
+          control.value = previousValue;
+          setControlState(control, 'is-error');
+          setSaveFlag(row, 'error', 'Error al guardar');
+          showGlobalToast(String((error && error.message) || 'No se pudo actualizar cobertura'), 'error');
+          console.error(error);
+        }
+      }
+
+      controls.forEach((control) => {
+        control.dataset.lastValue = String(control.value || '').trim();
+        control.addEventListener('change', () => persist(control));
+      });
+    }
+
+    function mountCourierCoverageMap() {
+      const mapElement = document.querySelector('#courier-coverage-map');
+      if (!mapElement) return;
+      if (typeof L === 'undefined') {
+        mapElement.innerHTML = '<p class="map-fallback-message">No fue posible cargar el mapa (Leaflet no disponible).</p>';
+        return;
+      }
+
+      const points = Array.isArray(coverageMapPoints) ? coverageMapPoints : [];
+      const legendTarget = document.querySelector('#courier-coverage-legend');
+      const resetButton = document.querySelector('[data-map-reset]');
+
+      const map = L.map(mapElement, {
+        zoomControl: true,
+        scrollWheelZoom: false,
+      }).setView([4.67, -74.1], 10);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 18,
+      }).addTo(map);
+
+      const localityAlias = {
+        usaquen: 'usaquen',
+        chapinero: 'chapinero',
+        santa_fe: 'santa_fe',
+        santafe: 'santa_fe',
+        san_cristobal: 'san_cristobal',
+        usme: 'usme',
+        tunjuelito: 'tunjuelito',
+        bosa: 'bosa',
+        kennedy: 'kennedy',
+        fontibon: 'fontibon',
+        engativa: 'engativa',
+        suba: 'suba',
+        barrios_unidos: 'barrios_unidos',
+        teusaquillo: 'teusaquillo',
+        los_martires: 'los_martires',
+        antonio_narino: 'antonio_narino',
+        antonio_nari_o: 'antonio_narino',
+        puente_aranda: 'puente_aranda',
+        candelaria: 'la_candelaria',
+        la_candelaria: 'la_candelaria',
+        rafael_uribe_uribe: 'rafael_uribe_uribe',
+        ciudad_bolivar: 'ciudad_bolivar',
+        sumapaz: 'sumapaz',
+      };
+
+      let geoLayer = null;
+      let fallbackLayer = L.layerGroup().addTo(map);
+      let mapBounds = null;
+
+      function normalizeLocalityToken(value) {
+        return String(value || '')
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '');
+      }
+
+      function getPointByCode(localityCode) {
+        return points.find((point) => String(point.locality_code || '') === String(localityCode || '')) || null;
+      }
+
+      function resolveLocalityCodeFromFeature(feature) {
+        const props = (feature && feature.properties) || {};
+        const candidates = [
+          props.locality_code,
+          props.locality,
+          props['Nombre de la localidad'],
+          props.nombre,
+          props.name,
+        ];
+
+        for (const candidate of candidates) {
+          const normalized = normalizeLocalityToken(candidate);
+          if (!normalized) continue;
+          if (localityAlias[normalized]) {
+            return localityAlias[normalized];
+          }
+        }
+        return '';
+      }
+
+      function pointColor(point) {
+        if (!point || !point.is_assigned) return '#475569';
+        return String(point.color || '#0ea5e9');
+      }
+
+      function buildPopupContent(localityName, point) {
+        const clientsCount = Number(point && point.clients_count ? point.clients_count : 0);
+        const courierName = point && point.courier_name ? point.courier_name : 'Sin asignar';
+        const coverageState = point && point.is_assigned ? 'Con cobertura' : 'Sin cobertura';
+        return (
+          `<strong>${localityName || 'Localidad'}</strong><br>` +
+          `Estado: ${coverageState}<br>` +
+          `Motorizado: ${courierName}<br>` +
+          `Clientes: ${Number.isFinite(clientsCount) ? clientsCount : 0}`
+        );
+      }
+
+      function updateLegend() {
+        if (!legendTarget) return;
+        const legendByCourier = new Map();
+        points.forEach((point) => {
+          if (!point || !point.is_assigned || !point.courier_id) return;
+          const key = String(point.courier_id || '');
+          if (!legendByCourier.has(key)) {
+            legendByCourier.set(key, {
+              courier_name: point.courier_name || 'Motorizado',
+              color: pointColor(point),
+            });
+          }
+        });
+
+        const legendItems = [];
+        legendByCourier.forEach((item) => {
+          legendItems.push(
+            `<span class="legend-item"><span class="legend-dot" style="--legend-color:${item.color};"></span>${item.courier_name}</span>`
+          );
+        });
+        legendItems.push('<span class="legend-item"><span class="legend-dot" style="--legend-color:#475569;"></span>Sin cobertura</span>');
+        legendTarget.innerHTML = legendItems.join('');
+      }
+
+      function renderFallbackPoints() {
+        if (!fallbackLayer) {
+          fallbackLayer = L.layerGroup().addTo(map);
+        }
+        fallbackLayer.clearLayers();
+
+        const boundsPoints = [];
+        points.forEach((point) => {
+          const lat = Number(point.lat);
+          const lng = Number(point.lng);
+          if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+
+          const color = pointColor(point);
+          const circle = L.circle([lat, lng], {
+            radius: point.is_assigned ? 2200 : 1700,
+            color,
+            weight: point.is_assigned ? 2 : 1,
+            fillColor: color,
+            fillOpacity: point.is_assigned ? 0.3 : 0.16,
+          }).addTo(fallbackLayer);
+          circle.bindPopup(buildPopupContent(point.locality_name || 'Localidad', point));
+          boundsPoints.push([lat, lng]);
+        });
+
+        if (boundsPoints.length > 1) {
+          mapBounds = L.latLngBounds(boundsPoints);
+          map.fitBounds(mapBounds, { padding: [24, 24] });
+        }
+      }
+
+      function refreshGeoLayerStyles() {
+        if (!geoLayer) {
+          renderFallbackPoints();
+          updateLegend();
+          return;
+        }
+
+        geoLayer.eachLayer((layer) => {
+          const localityCode = layer.__localityCode || '';
+          const localityName = layer.__localityName || 'Localidad';
+          const point = getPointByCode(localityCode);
+          const color = pointColor(point);
+          layer.setStyle({
+            color: point && point.is_assigned ? color : 'rgba(148, 163, 184, 0.62)',
+            weight: point && point.is_assigned ? 1.9 : 1.3,
+            fillColor: color,
+            fillOpacity: point && point.is_assigned ? 0.34 : 0.12,
+          });
+
+          const popupText = buildPopupContent(localityName, point);
+          if (layer.getPopup()) {
+            layer.setPopupContent(popupText);
+          } else {
+            layer.bindPopup(popupText);
+          }
+          layer.bindTooltip(`${localityName} - ${point && point.is_assigned ? (point.courier_name || 'Asignado') : 'Sin cobertura'}`);
+        });
+        updateLegend();
+      }
+
+      async function renderPolygons() {
+        if (!localitiesGeoJsonUrl) {
+          renderFallbackPoints();
+          updateLegend();
+          return;
+        }
+
+        try {
+          const response = await fetch(localitiesGeoJsonUrl, { cache: 'no-store' });
+          if (!response.ok) {
+            throw new Error('No fue posible cargar zonas en mapa');
+          }
+
+          const geoJsonData = await response.json();
+          if (geoLayer) {
+            map.removeLayer(geoLayer);
+          }
+          if (fallbackLayer) {
+            fallbackLayer.clearLayers();
+          }
+
+          geoLayer = L.geoJSON(geoJsonData, {
+            style(feature) {
+              const localityCode = resolveLocalityCodeFromFeature(feature);
+              const point = getPointByCode(localityCode);
+              const color = pointColor(point);
+              return {
+                color: point && point.is_assigned ? color : 'rgba(148, 163, 184, 0.62)',
+                weight: point && point.is_assigned ? 1.9 : 1.3,
+                fillColor: color,
+                fillOpacity: point && point.is_assigned ? 0.34 : 0.12,
+              };
+            },
+            onEachFeature(feature, layer) {
+              const localityCode = resolveLocalityCodeFromFeature(feature);
+              const point = getPointByCode(localityCode);
+              const props = (feature && feature.properties) || {};
+              const localityName =
+                String((point && point.locality_name) || props['Nombre de la localidad'] || props.name || 'Localidad');
+
+              layer.__localityCode = localityCode;
+              layer.__localityName = localityName;
+              layer.bindPopup(buildPopupContent(localityName, point));
+              layer.bindTooltip(`${localityName} - ${point && point.is_assigned ? (point.courier_name || 'Asignado') : 'Sin cobertura'}`);
+
+              layer.on('mouseover', () => {
+                layer.setStyle({ weight: 2.6 });
+                layer.bringToFront();
+              });
+              layer.on('mouseout', () => {
+                refreshGeoLayerStyles();
+              });
+            },
+          }).addTo(map);
+
+          mapBounds = geoLayer.getBounds();
+          if (mapBounds.isValid()) {
+            map.fitBounds(mapBounds, { padding: [20, 20] });
+          }
+          refreshGeoLayerStyles();
+        } catch (error) {
+          renderFallbackPoints();
+          updateLegend();
+          showGlobalToast('No se pudieron cargar poligonos; usando vista de respaldo.', 'warning');
+          console.error(error);
+        }
+      }
+
+      if (resetButton) {
+        resetButton.addEventListener('click', () => {
+          if (mapBounds && mapBounds.isValid()) {
+            map.fitBounds(mapBounds, { padding: [20, 20] });
+            return;
+          }
+          map.setView([4.67, -74.1], 10);
+        });
+      }
+
+      document.addEventListener('motorizados:coverage-updated', () => {
+        refreshGeoLayerStyles();
+      });
+
+      renderPolygons();
+    }
+
     function mountClientInlineEditing() {
       const table = document.querySelector('.table-clients');
       if (!table) return;
@@ -1431,6 +2283,10 @@
     mountAnalysisTop();
     mountFlowDetailsModal();
     mountOperationalStatusEditing();
+    mountMotorizadosFilters();
+    mountCourierPhoneEditing();
+    mountCourierLocalityAssignment();
+    mountCourierCoverageMap();
     mountClientInlineEditing();
   </script>
 </body>

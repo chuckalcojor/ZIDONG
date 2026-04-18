@@ -48,6 +48,22 @@
 }
 ```
 
+## Courier Locality Coverage Payload (V1.5)
+
+```json
+{
+  "locality_code": "kennedy",
+  "locality_name": "Kennedy",
+  "courier_id": "uuid-courier",
+  "assigned_by": "dashboard:operator"
+}
+```
+
+Rules:
+- `locality_code` pertenece al catalogo cerrado de localidades de Bogota.
+- Solo se permite un motorizado por localidad (`1 localidad = 1 motorizado`).
+- Si no existe cobertura para la localidad, cliente nuevo queda sin asignar.
+
 ## State Transition Rules (V1)
 
 - `received -> assigned` when a courier exists for the client.

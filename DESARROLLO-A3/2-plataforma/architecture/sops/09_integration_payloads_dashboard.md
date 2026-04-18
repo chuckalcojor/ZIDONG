@@ -110,6 +110,59 @@ Endpoint: `POST /api/dashboard/client-assignment`
 
 - `courier_id` empty (`""`) clears current assignment.
 
+### Update locality coverage for couriers (Motorizados)
+
+Endpoint: `POST /api/dashboard/courier-locality-assignment`
+
+```json
+{
+  "locality_code": "kennedy",
+  "courier_id": "uuid-courier"
+}
+```
+
+Allowed `locality_code` values (catalogo cerrado de Bogota):
+- `usaquen`
+- `chapinero`
+- `santa_fe`
+- `san_cristobal`
+- `usme`
+- `tunjuelito`
+- `bosa`
+- `kennedy`
+- `fontibon`
+- `engativa`
+- `suba`
+- `barrios_unidos`
+- `teusaquillo`
+- `los_martires`
+- `antonio_narino`
+- `puente_aranda`
+- `la_candelaria`
+- `rafael_uribe_uribe`
+- `ciudad_bolivar`
+- `sumapaz`
+
+Notas operativas:
+- `courier_id` vacio (`""`) elimina cobertura de esa localidad.
+- La regla operativa es `1 localidad = 1 motorizado`.
+- En alta de cliente nuevo, si la localidad no tiene cobertura, el cliente queda sin asignar.
+
+### Update courier phone (Motorizados)
+
+Endpoint: `POST /api/dashboard/courier-phone`
+
+```json
+{
+  "courier_id": "uuid-courier",
+  "phone": "3001234567"
+}
+```
+
+Notas operativas:
+- `phone` se normaliza retirando espacios y separadores.
+- Si el telefono ya existe en otro motorizado, el endpoint responde `409`.
+
 ### Update request status (manual dashboard)
 
 Endpoint: `POST /api/dashboard/request-status`

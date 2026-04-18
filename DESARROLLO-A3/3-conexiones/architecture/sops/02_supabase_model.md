@@ -30,7 +30,14 @@
 - `assigned_by` text
 - `assigned_at` timestamptz default now()
 
-4. `requests`
+4. `courier_locality_coverage`
+- `locality_code` text pk (catalogo cerrado de localidades de Bogota)
+- `locality_name` text not null
+- `courier_id` uuid fk -> `couriers.id`
+- `assigned_by` text
+- `assigned_at` timestamptz default now()
+
+5. `requests`
 - `id` uuid pk
 - `client_id` uuid fk -> `clients.id`
 - `entry_channel` text check in (`telegram`, `liveconnect`, `manual`)
@@ -48,7 +55,7 @@
 - `fallback_reason` text
 - timestamps
 
-5. `request_events`
+6. `request_events`
 - `id` uuid pk
 - `request_id` uuid fk -> `requests.id`
 - `event_type` text
