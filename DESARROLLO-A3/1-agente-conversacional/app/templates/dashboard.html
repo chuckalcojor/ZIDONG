@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='20260418-motorizados-v2') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css', v='20260420-filtros-v2') }}">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -322,6 +322,50 @@
         </section>
 
         <section class="table-shell">
+          <div class="table-toolbar-stack dashboard-filter-toolbar">
+            <label class="project-search" aria-label="Buscar solicitudes">
+              <i data-lucide="search"></i>
+              <input type="text" data-requests-search-input placeholder="Buscar cliente, direccion o solicitud">
+            </label>
+            <div class="table-filter-row">
+              <select class="cell-select mot-filter-select filter-sort-select" data-requests-sort>
+                <option value="recent_desc">Orden: recientes</option>
+                <option value="recent_asc">Orden: antiguas</option>
+                <option value="client_az">Orden: cliente A-Z</option>
+                <option value="priority_desc">Orden: prioridad</option>
+                <option value="samples_desc">Orden: mas muestras</option>
+              </select>
+              <select class="cell-select mot-filter-select" data-requests-status-filter>
+                <option value="all">Todos los estados</option>
+                {% for option in context.request_status_options %}
+                <option value="{{ option.value }}">{{ option.label }}</option>
+                {% endfor %}
+              </select>
+              <select class="cell-select mot-filter-select" data-requests-priority-filter>
+                <option value="all">Todas las prioridades</option>
+                {% for option in context.request_priority_options %}
+                <option value="{{ option.value }}">{{ option.label }}</option>
+                {% endfor %}
+              </select>
+              <select class="cell-select mot-filter-select" data-requests-courier-filter>
+                <option value="all">Todos los motorizados</option>
+                <option value="sin asignar">Sin asignar</option>
+                {% for courier in context.couriers_options %}
+                <option value="{{ courier.name|lower }}">{{ courier.name }}</option>
+                {% endfor %}
+              </select>
+              <select class="cell-select mot-filter-select" data-requests-address-filter>
+                <option value="all">Direccion: todas</option>
+                <option value="match">Direccion coincide</option>
+                <option value="mismatch">Direccion no coincide</option>
+                <option value="unknown">Sin referencia</option>
+              </select>
+              <button type="button" class="ghost-btn ghost-btn-sm" data-requests-clear>
+                <i data-lucide="x"></i>Limpiar
+              </button>
+            </div>
+            <span class="table-counter" data-requests-count-pill>0 visibles</span>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -340,7 +384,18 @@
               </thead>
               <tbody>
                 {% for row in request_rows %}
-                <tr data-request-id="{{ row.request_id }}">
+                <tr
+                  class="request-table-row"
+                  data-request-id="{{ row.request_id }}"
+                  data-request-status="{{ row.status }}"
+                  data-request-priority="{{ row.priority }}"
+                  data-request-courier="{{ row.courier_name|lower }}"
+                  data-request-address="{{ row.address_match_state }}"
+                  data-request-created-at="{{ row.created_at if row.created_at and row.created_at != '-' else '' }}"
+                  data-request-sample-count="{{ row.sample_count }}"
+                  data-request-clinic="{{ row.clinic_name|lower }}"
+                  data-search="{{ (row.request_id ~ ' ' ~ row.clinic_name ~ ' ' ~ (row.pickup_address or '') ~ ' ' ~ row.sample_types_text ~ ' ' ~ row.courier_name ~ ' ' ~ row.service_area ~ ' ' ~ row.intent)|lower }}"
+                >
                   <td>{{ row.created_at[:16] if row.created_at and row.created_at != '-' else '-' }}</td>
                   <td>
                     <strong>{{ row.clinic_name }}</strong>
@@ -414,6 +469,15 @@
               </tbody>
             </table>
           </div>
+          <div class="table-pagination" data-requests-pagination>
+            <button type="button" class="ghost-btn ghost-btn-sm" data-requests-prev disabled>
+              <i data-lucide="chevron-left"></i>Anterior
+            </button>
+            <span class="table-counter" data-requests-page-label>Pagina 1 de 1</span>
+            <button type="button" class="ghost-btn ghost-btn-sm" data-requests-next disabled>
+              Siguiente<i data-lucide="chevron-right"></i>
+            </button>
+          </div>
         </section>
         {% endif %}
 
@@ -427,6 +491,47 @@
         </section>
 
         <section class="table-shell">
+          <div class="table-toolbar-stack dashboard-filter-toolbar">
+            <label class="project-search" aria-label="Buscar clientes">
+              <i data-lucide="search"></i>
+              <input type="text" data-clients-search-input placeholder="Buscar clinica, NIT, telefono o correo">
+            </label>
+            <div class="table-filter-row">
+              <select class="cell-select mot-filter-select filter-sort-select" data-clients-sort>
+                <option value="name_az">Orden: nombre A-Z</option>
+                <option value="requests_desc">Orden: mas solicitudes</option>
+                <option value="samples_desc">Orden: mas muestras</option>
+                <option value="registered_desc">Orden: mas recientes</option>
+              </select>
+              <select class="cell-select mot-filter-select" data-clients-type-filter>
+                <option value="all">Tipo: todos</option>
+                <option value="">Tipo: sin dato</option>
+                {% for option_value, option_label in context.client_type_options.items() %}
+                <option value="{{ option_value }}">{{ option_label }}</option>
+                {% endfor %}
+              </select>
+              <select class="cell-select mot-filter-select" data-clients-status-filter>
+                <option value="all">Estado: todos</option>
+                <option value="activo">Activos</option>
+                <option value="inactivo">Inactivos</option>
+              </select>
+              <select class="cell-select mot-filter-select" data-clients-assignment-filter>
+                <option value="all">Motorizado: todos</option>
+                <option value="yes">Con motorizado</option>
+                <option value="no">Sin motorizado</option>
+              </select>
+              <select class="cell-select mot-filter-select" data-clients-fe-filter>
+                <option value="all">Fact. electronica: todos</option>
+                <option value="si">Si</option>
+                <option value="no">No</option>
+                <option value="sin_dato">Sin dato</option>
+              </select>
+              <button type="button" class="ghost-btn ghost-btn-sm" data-clients-clear>
+                <i data-lucide="x"></i>Limpiar
+              </button>
+            </div>
+            <span class="table-counter" data-clients-count-pill>0 visibles</span>
+          </div>
           <div class="table-wrap">
             <table class="table-clients">
               <thead>
@@ -456,7 +561,21 @@
               </thead>
               <tbody>
                 {% for row in context.clients_rows %}
-                <tr data-client-id="{{ row.client_id }}" data-clinic-key="{{ row.clinic_key }}" data-clinic-name="{{ row.clinic_name }}">
+                <tr
+                  class="client-table-row"
+                  data-client-id="{{ row.client_id }}"
+                  data-clinic-key="{{ row.clinic_key }}"
+                  data-clinic-name="{{ row.clinic_name }}"
+                  data-client-status="{{ row.client_status|lower }}"
+                  data-client-type="{{ row.client_type or '' }}"
+                  data-client-fe="{{ row.electronic_invoicing_option or 'sin_dato' }}"
+                  data-client-has-courier="{{ 'yes' if row.assigned_courier_id else 'no' }}"
+                  data-client-display-name="{{ row.display_name|lower }}"
+                  data-client-requests="{{ row.requests_count }}"
+                  data-client-samples="{{ row.samples_count }}"
+                  data-client-registered-at="{{ row.registration_timestamp if row.registration_timestamp and row.registration_timestamp != '-' else '' }}"
+                  data-search="{{ (row.display_name ~ ' ' ~ row.secondary_name ~ ' ' ~ row.clinic_name ~ ' ' ~ row.client_code ~ ' ' ~ row.tax_id ~ ' ' ~ row.phone ~ ' ' ~ row.email ~ ' ' ~ row.billing_email ~ ' ' ~ row.zone ~ ' ' ~ row.courier_name)|lower }}"
+                >
                   <td class="cell-client-name">
                     <strong>{{ row.display_name }}</strong>
                     {% if row.secondary_name and row.secondary_name != '-' %}
@@ -532,6 +651,15 @@
                 {% endfor %}
               </tbody>
             </table>
+          </div>
+          <div class="table-pagination" data-clients-pagination>
+            <button type="button" class="ghost-btn ghost-btn-sm" data-clients-prev disabled>
+              <i data-lucide="chevron-left"></i>Anterior
+            </button>
+            <span class="table-counter" data-clients-page-label>Pagina 1 de 1</span>
+            <button type="button" class="ghost-btn ghost-btn-sm" data-clients-next disabled>
+              Siguiente<i data-lucide="chevron-right"></i>
+            </button>
           </div>
         </section>
         {% endif %}
@@ -763,6 +891,44 @@
         </section>
 
         <section class="table-shell">
+          <div class="table-toolbar-stack dashboard-filter-toolbar">
+            <label class="project-search" aria-label="Buscar muestras">
+              <i data-lucide="search"></i>
+              <input type="text" data-samples-search-input placeholder="Buscar cliente, analisis o muestra">
+            </label>
+            <div class="table-filter-row">
+              <select class="cell-select mot-filter-select filter-sort-select" data-samples-sort>
+                <option value="recent_desc">Orden: recientes</option>
+                <option value="recent_asc">Orden: antiguas</option>
+                <option value="client_az">Orden: cliente A-Z</option>
+                <option value="priority_desc">Orden: prioridad</option>
+                <option value="status_az">Orden: estado</option>
+              </select>
+              <select class="cell-select mot-filter-select" data-samples-status-filter>
+                <option value="all">Todos los estados</option>
+                {% for option in context.sample_status_options %}
+                <option value="{{ option.value }}">{{ option.label }}</option>
+                {% endfor %}
+              </select>
+              <select class="cell-select mot-filter-select" data-samples-priority-filter>
+                <option value="all">Todas las prioridades</option>
+                {% for option in context.request_priority_options %}
+                <option value="{{ option.value }}">{{ option.label }}</option>
+                {% endfor %}
+              </select>
+              <select class="cell-select mot-filter-select" data-samples-courier-filter>
+                <option value="all">Todos los motorizados</option>
+                <option value="sin asignar">Sin asignar</option>
+                {% for courier in context.couriers_options %}
+                <option value="{{ courier.name|lower }}">{{ courier.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="button" class="ghost-btn ghost-btn-sm" data-samples-clear>
+                <i data-lucide="x"></i>Limpiar
+              </button>
+            </div>
+            <span class="table-counter" data-samples-count-pill>0 visibles</span>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -772,7 +938,16 @@
               </thead>
               <tbody>
                 {% for sample in sample_rows_view %}
-                <tr>
+                <tr
+                  class="sample-table-row"
+                  data-sample-status="{{ sample.status }}"
+                  data-sample-priority="{{ (sample.priority_value or sample.priority or '')|lower }}"
+                  data-sample-courier="{{ (sample.couriers.name if sample.couriers else (sample.courier_name or 'Sin asignar'))|lower }}"
+                  data-sample-created-at="{{ sample.created_at or '' }}"
+                  data-sample-client="{{ (sample.clients.clinic_name if sample.clients else (sample.client_name or '-'))|lower }}"
+                  data-sample-test="{{ (sample.test_name or sample.test_code or '-')|lower }}"
+                  data-search="{{ (((sample.clients.clinic_name if sample.clients else (sample.client_name or '-')) ~ ' ' ~ (sample.sample_type or '') ~ ' ' ~ (sample.test_name or sample.test_code or '') ~ ' ' ~ (sample.couriers.name if sample.couriers else (sample.courier_name or 'Sin asignar')) ~ ' ' ~ (sample.request_id or '') ~ ' ' ~ (sample.id or '')))|lower }}"
+                >
                   <td>{{ sample.created_at[:16] if sample.created_at else '-' }}</td>
                   <td>{{ sample.clients.clinic_name if sample.clients else (sample.client_name or '-') }}</td>
                   <td>{{ sample.sample_type or '-' }}</td>
@@ -806,6 +981,15 @@
               </tbody>
             </table>
           </div>
+          <div class="table-pagination" data-samples-pagination>
+            <button type="button" class="ghost-btn ghost-btn-sm" data-samples-prev disabled>
+              <i data-lucide="chevron-left"></i>Anterior
+            </button>
+            <span class="table-counter" data-samples-page-label>Pagina 1 de 1</span>
+            <button type="button" class="ghost-btn ghost-btn-sm" data-samples-next disabled>
+              Siguiente<i data-lucide="chevron-right"></i>
+            </button>
+          </div>
         </section>
         {% endif %}
 
@@ -827,6 +1011,33 @@
         </section>
 
         <section class="table-shell">
+          <div class="table-toolbar-stack dashboard-filter-toolbar">
+            <label class="project-search" aria-label="Buscar analisis">
+              <i data-lucide="search"></i>
+              <input type="text" data-analysis-search-input placeholder="Buscar codigo o nombre de prueba">
+            </label>
+            <div class="table-filter-row">
+              <select class="cell-select mot-filter-select filter-sort-select" data-analysis-sort>
+                <option value="code_az">Orden: codigo A-Z</option>
+                <option value="name_az">Orden: prueba A-Z</option>
+                <option value="type_az">Orden: tipo A-Z</option>
+                <option value="price_desc">Orden: valor mayor</option>
+                <option value="price_asc">Orden: valor menor</option>
+              </select>
+              <select class="cell-select mot-filter-select" data-analysis-type-filter>
+                <option value="all">Tipo de prueba: todos</option>
+              </select>
+              <select class="cell-select mot-filter-select" data-analysis-price-filter>
+                <option value="all">Valor: todos</option>
+                <option value="yes">Con valor</option>
+                <option value="no">Sin valor</option>
+              </select>
+              <button type="button" class="ghost-btn ghost-btn-sm" data-analysis-clear>
+                <i data-lucide="x"></i>Limpiar
+              </button>
+            </div>
+            <span class="table-counter" data-analysis-count-pill>0 visibles</span>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -836,7 +1047,15 @@
               </thead>
               <tbody>
                 {% for row in context.catalog_rows %}
-                <tr>
+                <tr
+                  class="analysis-table-row"
+                  data-analysis-type="{{ row.test_type|lower }}"
+                  data-analysis-has-price="{{ 'yes' if row.price_cop else 'no' }}"
+                  data-analysis-code="{{ row.analysis_code|lower }}"
+                  data-analysis-name="{{ row.test_name|lower }}"
+                  data-analysis-price="{{ row.price_cop if row.price_cop else 0 }}"
+                  data-search="{{ (row.analysis_code ~ ' ' ~ row.test_type ~ ' ' ~ row.test_name ~ ' ' ~ row.turnaround)|lower }}"
+                >
                   <td>{{ row.analysis_code }}</td>
                   <td>{{ row.test_type }}</td>
                   <td>{{ row.test_name }}</td>
@@ -853,6 +1072,15 @@
               </tbody>
             </table>
           </div>
+          <div class="table-pagination" data-analysis-pagination>
+            <button type="button" class="ghost-btn ghost-btn-sm" data-analysis-prev disabled>
+              <i data-lucide="chevron-left"></i>Anterior
+            </button>
+            <span class="table-counter" data-analysis-page-label>Pagina 1 de 1</span>
+            <button type="button" class="ghost-btn ghost-btn-sm" data-analysis-next disabled>
+              Siguiente<i data-lucide="chevron-right"></i>
+            </button>
+          </div>
         </section>
         {% endif %}
 
@@ -863,6 +1091,35 @@
         </section>
 
         <section class="flow-board-shell">
+          <div class="table-toolbar-stack dashboard-filter-toolbar flow-filter-toolbar">
+            <label class="project-search" aria-label="Buscar en flujo">
+              <i data-lucide="search"></i>
+              <input type="text" data-flow-search-input placeholder="Buscar cliente, telefono o chat">
+            </label>
+            <div class="table-filter-row">
+              <select class="cell-select mot-filter-select filter-sort-select" data-flow-sort-filter>
+                <option value="updated_desc">Orden: actualizados reciente</option>
+                <option value="updated_asc">Orden: actualizados antiguos</option>
+                <option value="clinic_az">Orden: cliente A-Z</option>
+              </select>
+              <select class="cell-select mot-filter-select" data-flow-stage-filter>
+                <option value="all">Todas las etapas</option>
+                {% for lane in context.flow_kanban_lanes %}
+                <option value="{{ lane.stage_key }}">{{ lane.label }}</option>
+                {% endfor %}
+              </select>
+              <select class="cell-select mot-filter-select" data-flow-handoff-filter>
+                <option value="all">Escalado: todos</option>
+                <option value="yes">Solo escalados</option>
+                <option value="no">Sin escalado</option>
+              </select>
+              <button type="button" class="ghost-btn ghost-btn-sm" data-flow-clear>
+                <i data-lucide="x"></i>Limpiar
+              </button>
+            </div>
+            <span class="table-counter" data-flow-count-pill>0 visibles</span>
+          </div>
+
           <div class="flow-board-meta">
             <span class="flow-chip">Sesiones: {{ context.flow_summary.sessions_tracked }}</span>
             <span class="flow-chip">Transiciones: {{ context.flow_summary.transitions_logged }}</span>
@@ -871,7 +1128,7 @@
 
           <div class="kanban-flow-board" style="--lane-count: {{ context.flow_kanban_lanes|length }};">
             {% for lane in context.flow_kanban_lanes %}
-            <article class="kanban-flow-lane">
+            <article class="kanban-flow-lane" data-stage-key="{{ lane.stage_key }}">
               <header class="kanban-flow-header">
                 <h3>{{ lane.label }}</h3>
                 <span class="kanban-flow-count">{{ lane.count }}</span>
@@ -885,14 +1142,18 @@
                   <button
                     type="button"
                     class="kanban-flow-card"
+                    data-stage-key="{{ lane.stage_key }}"
+                    data-handoff-flag="{{ 'yes' if card.requires_handoff else 'no' }}"
                     data-clinic="{{ card.clinic_name }}"
                     data-phone="{{ card_identifier }}"
                     data-chat="{{ card.external_chat_id }}"
                     data-status="{{ ui_status_labels.get(card.status, card.status) }}"
                     data-transition="{{ card.last_transition }}"
                     data-updated="{{ card.updated_at[:16] if card.updated_at and card.updated_at != '-' else '-' }}"
+                    data-updated-raw="{{ card.updated_at if card.updated_at and card.updated_at != '-' else '' }}"
                     data-stage="{{ lane.label }}"
                     data-handoff="{{ ('Si - ' ~ ui_service_area_labels.get(card.handoff_area or 'none', card.handoff_area or 'Ninguna')) if card.requires_handoff else 'No' }}"
+                    data-search="{{ (card.clinic_name ~ ' ' ~ card_identifier ~ ' ' ~ card.external_chat_id ~ ' ' ~ lane.label ~ ' ' ~ card.last_transition ~ ' ' ~ card.status)|lower }}"
                   >
                     <div class="kanban-flow-card-top">
                       <strong>{{ card.clinic_name }}</strong>
@@ -964,6 +1225,308 @@
     function labelStatus(value) {
       if (!value) return '-';
       return statusLabels[value] || labelFromKey(value, '-');
+    }
+
+    function normalizeSearchText(value) {
+      return String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9@._+\s-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function debounce(callback, wait = 140) {
+      let timeoutId = null;
+      return (...args) => {
+        if (timeoutId) {
+          window.clearTimeout(timeoutId);
+        }
+        timeoutId = window.setTimeout(() => {
+          callback(...args);
+        }, wait);
+      };
+    }
+
+    function getSearchTokenFromElement(element) {
+      if (!element) return '';
+      if (!element.dataset.searchIndex) {
+        element.dataset.searchIndex = normalizeSearchText(
+          element.dataset.search || element.textContent || ''
+        );
+      }
+      return element.dataset.searchIndex;
+    }
+
+    function refreshSearchTokenForElement(element) {
+      if (!element) return;
+      const sourceText = element.innerText || element.textContent || '';
+      element.dataset.search = sourceText;
+      element.dataset.searchIndex = normalizeSearchText(sourceText);
+    }
+
+    function toSortNumber(value, fallback = 0) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    }
+
+    function toSortTimestamp(value) {
+      const text = String(value || '').trim();
+      if (!text) return 0;
+      const parsed = Date.parse(text);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function compareSortText(leftValue, rightValue) {
+      return String(leftValue || '').localeCompare(String(rightValue || ''), 'es', {
+        sensitivity: 'base',
+        numeric: true,
+      });
+    }
+
+    function readSessionState(key) {
+      if (!key) return null;
+      try {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return null;
+        return parsed;
+      } catch (_error) {
+        return null;
+      }
+    }
+
+    function writeSessionState(key, value) {
+      if (!key) return;
+      try {
+        sessionStorage.setItem(key, JSON.stringify(value));
+      } catch (_error) {
+      }
+    }
+
+    function mountTableFilters(config) {
+      const rows = Array.from(document.querySelectorAll(config.rowSelector || ''));
+      if (!rows.length) return null;
+
+      const rowsContainer = rows[0] ? rows[0].parentElement : null;
+      rows.forEach((row, index) => {
+        if (!row.dataset.baseOrder) {
+          row.dataset.baseOrder = String(index);
+        }
+      });
+
+      const searchInput = config.searchInputSelector
+        ? document.querySelector(config.searchInputSelector)
+        : null;
+      const countPill = config.countPillSelector
+        ? document.querySelector(config.countPillSelector)
+        : null;
+      const sortControl = config.sortSelector ? document.querySelector(config.sortSelector) : null;
+      const prevButton = config.prevSelector ? document.querySelector(config.prevSelector) : null;
+      const nextButton = config.nextSelector ? document.querySelector(config.nextSelector) : null;
+      const pageLabel = config.pageLabelSelector ? document.querySelector(config.pageLabelSelector) : null;
+      const clearButton = config.clearSelector ? document.querySelector(config.clearSelector) : null;
+      const stateKey = String(config.stateKey || '').trim();
+
+      const filterControls = {};
+      Object.entries(config.filterSelectors || {}).forEach(([key, selector]) => {
+        const control = document.querySelector(selector);
+        if (control) {
+          filterControls[key] = control;
+        }
+      });
+
+      const pageState = {
+        page: 1,
+        totalPages: 1,
+      };
+      const pageSize = Math.max(1, Number(config.pageSize || 12));
+      const hasPagination = Boolean(prevButton && nextButton && pageLabel);
+
+      function setControlValueIfAvailable(control, value) {
+        if (!control || typeof value !== 'string') return;
+        const hasOption = Array.from(control.options || []).some(
+          (option) => String(option.value || '') === value
+        );
+        if (hasOption) {
+          control.value = value;
+        }
+      }
+
+      function currentSortValue() {
+        return sortControl ? String(sortControl.value || '').trim() : '';
+      }
+
+      function comparatorForSort(sortValue) {
+        if (!config.sorters || typeof config.sorters !== 'object') {
+          return null;
+        }
+        const comparator = config.sorters[sortValue];
+        return typeof comparator === 'function' ? comparator : null;
+      }
+
+      function buildSortedRows() {
+        const comparator = comparatorForSort(currentSortValue());
+        const sorted = [...rows];
+        if (!comparator) {
+          return sorted;
+        }
+
+        return sorted.sort((leftRow, rightRow) => {
+          const result = Number(comparator(leftRow, rightRow));
+          if (result < 0) return -1;
+          if (result > 0) return 1;
+          return toSortNumber(leftRow.dataset.baseOrder) - toSortNumber(rightRow.dataset.baseOrder);
+        });
+      }
+
+      function currentFilters() {
+        const values = {};
+        Object.entries(filterControls).forEach(([key, control]) => {
+          values[key] = String(control.value || '').trim();
+        });
+        return values;
+      }
+
+      function persistState(filters) {
+        writeSessionState(stateKey, {
+          search: searchInput ? String(searchInput.value || '') : '',
+          sort: currentSortValue(),
+          filters,
+        });
+      }
+
+      function hydrateState() {
+        const saved = readSessionState(stateKey);
+        if (!saved) return;
+
+        if (searchInput && typeof saved.search === 'string') {
+          searchInput.value = saved.search;
+        }
+
+        if (saved.filters && typeof saved.filters === 'object') {
+          Object.entries(filterControls).forEach(([key, control]) => {
+            setControlValueIfAvailable(control, String(saved.filters[key] || ''));
+          });
+        }
+
+        if (sortControl) {
+          setControlValueIfAvailable(sortControl, String(saved.sort || ''));
+        }
+      }
+
+      function applyFilters(resetPage = true) {
+        const sortedRows = buildSortedRows();
+        if (rowsContainer) {
+          sortedRows.forEach((row) => rowsContainer.appendChild(row));
+        }
+
+        const searchToken = normalizeSearchText(searchInput ? searchInput.value : '');
+        const filters = currentFilters();
+
+        const filteredRows = sortedRows.filter((row) => {
+          if (searchToken) {
+            const rowToken = getSearchTokenFromElement(row);
+            if (!rowToken.includes(searchToken)) {
+              return false;
+            }
+          }
+
+          if (typeof config.matches === 'function') {
+            return Boolean(config.matches(row, filters));
+          }
+
+          return true;
+        });
+
+        let visibleRows = filteredRows;
+        if (hasPagination) {
+          pageState.totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+          if (resetPage) {
+            pageState.page = 1;
+          }
+          pageState.page = Math.min(pageState.page, pageState.totalPages);
+
+          const start = (pageState.page - 1) * pageSize;
+          const end = start + pageSize;
+          visibleRows = filteredRows.slice(start, end);
+
+          prevButton.disabled = pageState.page <= 1;
+          nextButton.disabled = pageState.page >= pageState.totalPages;
+          pageLabel.textContent = `Pagina ${pageState.page} de ${pageState.totalPages}`;
+        }
+
+        const visibleSet = new Set(visibleRows);
+        rows.forEach((row) => {
+          row.style.display = visibleSet.has(row) ? '' : 'none';
+        });
+
+        if (countPill) {
+          countPill.textContent = `${filteredRows.length} visibles`;
+        }
+
+        if (typeof config.onAfterApply === 'function') {
+          config.onAfterApply({ filteredRows, visibleRows, filters });
+        }
+
+        persistState(filters);
+      }
+
+      if (searchInput) {
+        const onInput = debounce(() => applyFilters(true), Number(config.searchDebounce || 140));
+        searchInput.addEventListener('input', onInput);
+      }
+
+      Object.values(filterControls).forEach((control) => {
+        control.addEventListener('change', () => applyFilters(true));
+      });
+
+      if (sortControl) {
+        sortControl.addEventListener('change', () => applyFilters(true));
+      }
+
+      if (prevButton) {
+        prevButton.addEventListener('click', () => {
+          pageState.page = Math.max(1, pageState.page - 1);
+          applyFilters(false);
+        });
+      }
+
+      if (nextButton) {
+        nextButton.addEventListener('click', () => {
+          pageState.page = Math.min(pageState.totalPages, pageState.page + 1);
+          applyFilters(false);
+        });
+      }
+
+      if (clearButton) {
+        clearButton.addEventListener('click', () => {
+          if (searchInput) {
+            searchInput.value = '';
+          }
+          Object.values(filterControls).forEach((control) => {
+            const firstOption = control.options && control.options.length ? control.options[0] : null;
+            control.value = firstOption ? String(firstOption.value || '') : '';
+          });
+          if (sortControl) {
+            const firstSortOption = sortControl.options && sortControl.options.length
+              ? sortControl.options[0]
+              : null;
+            sortControl.value = firstSortOption ? String(firstSortOption.value || '') : '';
+          }
+          applyFilters(true);
+        });
+      }
+
+      if (config.updateEventName) {
+        document.addEventListener(config.updateEventName, () => applyFilters(false));
+      }
+
+      hydrateState();
+      applyFilters(true);
+      return { apply: applyFilters };
     }
 
     function showGlobalToast(message, type = 'info') {
@@ -1215,6 +1778,465 @@
       }).render();
     }
 
+    function mountSolicitudesFilters() {
+      const requestPriorityWeight = {
+        urgent: 3,
+        high: 2,
+        normal: 1,
+      };
+
+      mountTableFilters({
+        rowSelector: '.request-table-row',
+        searchInputSelector: '[data-requests-search-input]',
+        sortSelector: '[data-requests-sort]',
+        stateKey: 'dashboard.filters.solicitudes.v2',
+        filterSelectors: {
+          status: '[data-requests-status-filter]',
+          priority: '[data-requests-priority-filter]',
+          courier: '[data-requests-courier-filter]',
+          address: '[data-requests-address-filter]',
+        },
+        countPillSelector: '[data-requests-count-pill]',
+        prevSelector: '[data-requests-prev]',
+        nextSelector: '[data-requests-next]',
+        pageLabelSelector: '[data-requests-page-label]',
+        clearSelector: '[data-requests-clear]',
+        updateEventName: 'requests:row-updated',
+        pageSize: 12,
+        sorters: {
+          recent_desc(leftRow, rightRow) {
+            return toSortTimestamp(rightRow.dataset.requestCreatedAt) - toSortTimestamp(leftRow.dataset.requestCreatedAt);
+          },
+          recent_asc(leftRow, rightRow) {
+            return toSortTimestamp(leftRow.dataset.requestCreatedAt) - toSortTimestamp(rightRow.dataset.requestCreatedAt);
+          },
+          client_az(leftRow, rightRow) {
+            return compareSortText(leftRow.dataset.requestClinic, rightRow.dataset.requestClinic);
+          },
+          priority_desc(leftRow, rightRow) {
+            const leftPriority = String(leftRow.dataset.requestPriority || 'normal').trim();
+            const rightPriority = String(rightRow.dataset.requestPriority || 'normal').trim();
+            const priorityDiff = (requestPriorityWeight[rightPriority] || 0) - (requestPriorityWeight[leftPriority] || 0);
+            if (priorityDiff !== 0) {
+              return priorityDiff;
+            }
+            return toSortTimestamp(rightRow.dataset.requestCreatedAt) - toSortTimestamp(leftRow.dataset.requestCreatedAt);
+          },
+          samples_desc(leftRow, rightRow) {
+            const sampleDiff = toSortNumber(rightRow.dataset.requestSampleCount) - toSortNumber(leftRow.dataset.requestSampleCount);
+            if (sampleDiff !== 0) {
+              return sampleDiff;
+            }
+            return toSortTimestamp(rightRow.dataset.requestCreatedAt) - toSortTimestamp(leftRow.dataset.requestCreatedAt);
+          },
+        },
+        matches(row, filters) {
+          if (filters.status && filters.status !== 'all' && String(row.dataset.requestStatus || '') !== filters.status) {
+            return false;
+          }
+          if (filters.priority && filters.priority !== 'all' && String(row.dataset.requestPriority || '') !== filters.priority) {
+            return false;
+          }
+          if (filters.courier && filters.courier !== 'all' && String(row.dataset.requestCourier || '') !== filters.courier) {
+            return false;
+          }
+          if (filters.address && filters.address !== 'all' && String(row.dataset.requestAddress || '') !== filters.address) {
+            return false;
+          }
+          return true;
+        },
+      });
+    }
+
+    function mountClientesFilters() {
+      mountTableFilters({
+        rowSelector: '.client-table-row',
+        searchInputSelector: '[data-clients-search-input]',
+        sortSelector: '[data-clients-sort]',
+        stateKey: 'dashboard.filters.clientes.v2',
+        filterSelectors: {
+          type: '[data-clients-type-filter]',
+          status: '[data-clients-status-filter]',
+          assignment: '[data-clients-assignment-filter]',
+          fe: '[data-clients-fe-filter]',
+        },
+        countPillSelector: '[data-clients-count-pill]',
+        prevSelector: '[data-clients-prev]',
+        nextSelector: '[data-clients-next]',
+        pageLabelSelector: '[data-clients-page-label]',
+        clearSelector: '[data-clients-clear]',
+        updateEventName: 'clients:row-updated',
+        pageSize: 16,
+        sorters: {
+          name_az(leftRow, rightRow) {
+            return compareSortText(leftRow.dataset.clientDisplayName, rightRow.dataset.clientDisplayName);
+          },
+          requests_desc(leftRow, rightRow) {
+            const requestDiff = toSortNumber(rightRow.dataset.clientRequests) - toSortNumber(leftRow.dataset.clientRequests);
+            if (requestDiff !== 0) {
+              return requestDiff;
+            }
+            return compareSortText(leftRow.dataset.clientDisplayName, rightRow.dataset.clientDisplayName);
+          },
+          samples_desc(leftRow, rightRow) {
+            const sampleDiff = toSortNumber(rightRow.dataset.clientSamples) - toSortNumber(leftRow.dataset.clientSamples);
+            if (sampleDiff !== 0) {
+              return sampleDiff;
+            }
+            return compareSortText(leftRow.dataset.clientDisplayName, rightRow.dataset.clientDisplayName);
+          },
+          registered_desc(leftRow, rightRow) {
+            return toSortTimestamp(rightRow.dataset.clientRegisteredAt) - toSortTimestamp(leftRow.dataset.clientRegisteredAt);
+          },
+        },
+        matches(row, filters) {
+          if (filters.type !== undefined && filters.type !== 'all' && String(row.dataset.clientType || '') !== filters.type) {
+            return false;
+          }
+          if (filters.status && filters.status !== 'all' && String(row.dataset.clientStatus || '') !== filters.status) {
+            return false;
+          }
+          if (filters.assignment && filters.assignment !== 'all' && String(row.dataset.clientHasCourier || '') !== filters.assignment) {
+            return false;
+          }
+          if (filters.fe && filters.fe !== 'all' && String(row.dataset.clientFe || '') !== filters.fe) {
+            return false;
+          }
+          return true;
+        },
+      });
+    }
+
+    function mountMuestrasFilters() {
+      const samplePriorityWeight = {
+        urgente: 3,
+        urgent: 3,
+        alta: 2,
+        high: 2,
+        normal: 1,
+      };
+
+      mountTableFilters({
+        rowSelector: '.sample-table-row',
+        searchInputSelector: '[data-samples-search-input]',
+        sortSelector: '[data-samples-sort]',
+        stateKey: 'dashboard.filters.muestras.v2',
+        filterSelectors: {
+          status: '[data-samples-status-filter]',
+          priority: '[data-samples-priority-filter]',
+          courier: '[data-samples-courier-filter]',
+        },
+        countPillSelector: '[data-samples-count-pill]',
+        prevSelector: '[data-samples-prev]',
+        nextSelector: '[data-samples-next]',
+        pageLabelSelector: '[data-samples-page-label]',
+        clearSelector: '[data-samples-clear]',
+        updateEventName: 'samples:row-updated',
+        pageSize: 12,
+        sorters: {
+          recent_desc(leftRow, rightRow) {
+            return toSortTimestamp(rightRow.dataset.sampleCreatedAt) - toSortTimestamp(leftRow.dataset.sampleCreatedAt);
+          },
+          recent_asc(leftRow, rightRow) {
+            return toSortTimestamp(leftRow.dataset.sampleCreatedAt) - toSortTimestamp(rightRow.dataset.sampleCreatedAt);
+          },
+          client_az(leftRow, rightRow) {
+            return compareSortText(leftRow.dataset.sampleClient, rightRow.dataset.sampleClient);
+          },
+          priority_desc(leftRow, rightRow) {
+            const leftPriority = String(leftRow.dataset.samplePriority || 'normal').trim();
+            const rightPriority = String(rightRow.dataset.samplePriority || 'normal').trim();
+            const priorityDiff = (samplePriorityWeight[rightPriority] || 0) - (samplePriorityWeight[leftPriority] || 0);
+            if (priorityDiff !== 0) {
+              return priorityDiff;
+            }
+            return toSortTimestamp(rightRow.dataset.sampleCreatedAt) - toSortTimestamp(leftRow.dataset.sampleCreatedAt);
+          },
+          status_az(leftRow, rightRow) {
+            return compareSortText(leftRow.dataset.sampleStatus, rightRow.dataset.sampleStatus);
+          },
+        },
+        matches(row, filters) {
+          if (filters.status && filters.status !== 'all' && String(row.dataset.sampleStatus || '') !== filters.status) {
+            return false;
+          }
+          if (filters.priority && filters.priority !== 'all' && String(row.dataset.samplePriority || '') !== filters.priority) {
+            return false;
+          }
+          if (filters.courier && filters.courier !== 'all' && String(row.dataset.sampleCourier || '') !== filters.courier) {
+            return false;
+          }
+          return true;
+        },
+      });
+    }
+
+    function mountAnalisisFilters() {
+      const rows = Array.from(document.querySelectorAll('.analysis-table-row'));
+      if (!rows.length) return;
+
+      const typeFilter = document.querySelector('[data-analysis-type-filter]');
+      if (typeFilter && !typeFilter.dataset.ready) {
+        const optionValues = new Set();
+        rows.forEach((row) => {
+          const value = String(row.dataset.analysisType || '').trim();
+          if (value) {
+            optionValues.add(value);
+          }
+        });
+
+        Array.from(optionValues)
+          .sort((a, b) => a.localeCompare(b, 'es'))
+          .forEach((value) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = labelFromKey(value, value);
+            typeFilter.appendChild(option);
+          });
+
+        typeFilter.dataset.ready = 'true';
+      }
+
+      mountTableFilters({
+        rowSelector: '.analysis-table-row',
+        searchInputSelector: '[data-analysis-search-input]',
+        sortSelector: '[data-analysis-sort]',
+        stateKey: 'dashboard.filters.analisis.v2',
+        filterSelectors: {
+          type: '[data-analysis-type-filter]',
+          hasPrice: '[data-analysis-price-filter]',
+        },
+        countPillSelector: '[data-analysis-count-pill]',
+        prevSelector: '[data-analysis-prev]',
+        nextSelector: '[data-analysis-next]',
+        pageLabelSelector: '[data-analysis-page-label]',
+        clearSelector: '[data-analysis-clear]',
+        pageSize: 20,
+        sorters: {
+          code_az(leftRow, rightRow) {
+            return compareSortText(leftRow.dataset.analysisCode, rightRow.dataset.analysisCode);
+          },
+          name_az(leftRow, rightRow) {
+            return compareSortText(leftRow.dataset.analysisName, rightRow.dataset.analysisName);
+          },
+          type_az(leftRow, rightRow) {
+            return compareSortText(leftRow.dataset.analysisType, rightRow.dataset.analysisType);
+          },
+          price_desc(leftRow, rightRow) {
+            return toSortNumber(rightRow.dataset.analysisPrice) - toSortNumber(leftRow.dataset.analysisPrice);
+          },
+          price_asc(leftRow, rightRow) {
+            return toSortNumber(leftRow.dataset.analysisPrice) - toSortNumber(rightRow.dataset.analysisPrice);
+          },
+        },
+        matches(row, filters) {
+          if (filters.type && filters.type !== 'all' && String(row.dataset.analysisType || '') !== filters.type) {
+            return false;
+          }
+          if (filters.hasPrice && filters.hasPrice !== 'all' && String(row.dataset.analysisHasPrice || '') !== filters.hasPrice) {
+            return false;
+          }
+          return true;
+        },
+      });
+    }
+
+    function mountFlujoFilters() {
+      const laneElements = Array.from(document.querySelectorAll('.kanban-flow-lane'));
+      if (!laneElements.length) return;
+
+      const searchInput = document.querySelector('[data-flow-search-input]');
+      const stageFilter = document.querySelector('[data-flow-stage-filter]');
+      const handoffFilter = document.querySelector('[data-flow-handoff-filter]');
+      const sortFilter = document.querySelector('[data-flow-sort-filter]');
+      const clearButton = document.querySelector('[data-flow-clear]');
+      const countPill = document.querySelector('[data-flow-count-pill]');
+      const stateKey = 'dashboard.filters.flujo.v2';
+
+      function setControlValueIfAvailable(control, value) {
+        if (!control || typeof value !== 'string') return;
+        const hasOption = Array.from(control.options || []).some(
+          (option) => String(option.value || '') === value
+        );
+        if (hasOption) {
+          control.value = value;
+        }
+      }
+
+      function compareFlowCards(leftCard, rightCard, sortValue) {
+        const normalizedSort = String(sortValue || 'updated_desc').trim();
+        if (normalizedSort === 'clinic_az') {
+          return compareSortText(leftCard.dataset.clinic, rightCard.dataset.clinic);
+        }
+
+        if (normalizedSort === 'updated_asc') {
+          return toSortTimestamp(leftCard.dataset.updatedRaw || leftCard.dataset.updated)
+            - toSortTimestamp(rightCard.dataset.updatedRaw || rightCard.dataset.updated);
+        }
+
+        return toSortTimestamp(rightCard.dataset.updatedRaw || rightCard.dataset.updated)
+          - toSortTimestamp(leftCard.dataset.updatedRaw || leftCard.dataset.updated);
+      }
+
+      function persistFlowState() {
+        writeSessionState(stateKey, {
+          search: searchInput ? String(searchInput.value || '') : '',
+          stage: stageFilter ? String(stageFilter.value || '') : '',
+          handoff: handoffFilter ? String(handoffFilter.value || '') : '',
+          sort: sortFilter ? String(sortFilter.value || '') : '',
+        });
+      }
+
+      const savedState = readSessionState(stateKey);
+      if (savedState) {
+        if (searchInput && typeof savedState.search === 'string') {
+          searchInput.value = savedState.search;
+        }
+        setControlValueIfAvailable(stageFilter, String(savedState.stage || ''));
+        setControlValueIfAvailable(handoffFilter, String(savedState.handoff || ''));
+        setControlValueIfAvailable(sortFilter, String(savedState.sort || ''));
+      }
+
+      function applyFlowFilters() {
+        const query = normalizeSearchText(searchInput ? searchInput.value : '');
+        const stageValue = String((stageFilter && stageFilter.value) || 'all').trim();
+        const handoffValue = String((handoffFilter && handoffFilter.value) || 'all').trim();
+        const sortValue = String((sortFilter && sortFilter.value) || 'updated_desc').trim();
+
+        let visibleCardsTotal = 0;
+
+        laneElements.forEach((lane) => {
+          const laneStageKey = String(lane.dataset.stageKey || '').trim();
+          const stageAllowedForLane = stageValue === 'all' || stageValue === laneStageKey;
+          const laneCards = Array.from(lane.querySelectorAll('.kanban-flow-card'));
+          const cardsContainer = lane.querySelector('.kanban-flow-cards');
+          const orderedLaneCards = [...laneCards].sort((leftCard, rightCard) =>
+            compareFlowCards(leftCard, rightCard, sortValue)
+          );
+
+          if (cardsContainer) {
+            orderedLaneCards.forEach((card) => cardsContainer.appendChild(card));
+          }
+
+          let visibleInLane = 0;
+          orderedLaneCards.forEach((card) => {
+            const cardStageKey = String(card.dataset.stageKey || '').trim();
+            const cardHandoff = String(card.dataset.handoffFlag || 'no').trim();
+            const searchToken = getSearchTokenFromElement(card);
+
+            const matchesStage = stageValue === 'all' || cardStageKey === stageValue;
+            const matchesHandoff = handoffValue === 'all' || cardHandoff === handoffValue;
+            const matchesSearch = !query || searchToken.includes(query);
+            const isVisible = matchesStage && matchesHandoff && matchesSearch;
+
+            card.style.display = isVisible ? '' : 'none';
+            if (isVisible) {
+              visibleInLane += 1;
+            }
+          });
+
+          lane.style.display = stageAllowedForLane ? '' : 'none';
+
+          const countBadge = lane.querySelector('.kanban-flow-count');
+          if (countBadge) {
+            countBadge.textContent = String(visibleInLane);
+          }
+
+          if (cardsContainer) {
+            const staticEmpty = cardsContainer.querySelector('.kanban-flow-empty:not(.kanban-flow-empty-filter)');
+            if (staticEmpty) {
+              staticEmpty.style.display = stageAllowedForLane ? '' : 'none';
+            }
+
+            let filterEmpty = cardsContainer.querySelector('.kanban-flow-empty-filter');
+            if (!filterEmpty) {
+              filterEmpty = document.createElement('article');
+              filterEmpty.className = 'kanban-flow-empty kanban-flow-empty-filter';
+              filterEmpty.textContent = 'No hay clientes con este filtro';
+              cardsContainer.appendChild(filterEmpty);
+            }
+
+            const showFilterEmpty = stageAllowedForLane && laneCards.length > 0 && visibleInLane === 0;
+            filterEmpty.style.display = showFilterEmpty ? '' : 'none';
+          }
+
+          if (stageAllowedForLane) {
+            visibleCardsTotal += visibleInLane;
+          }
+        });
+
+        if (countPill) {
+          countPill.textContent = `${visibleCardsTotal} visibles`;
+        }
+
+        persistFlowState();
+      }
+
+      if (searchInput) {
+        searchInput.addEventListener('input', debounce(applyFlowFilters, 150));
+      }
+      if (stageFilter) {
+        stageFilter.addEventListener('change', applyFlowFilters);
+      }
+      if (handoffFilter) {
+        handoffFilter.addEventListener('change', applyFlowFilters);
+      }
+      if (sortFilter) {
+        sortFilter.addEventListener('change', applyFlowFilters);
+      }
+      if (clearButton) {
+        clearButton.addEventListener('click', () => {
+          if (searchInput) {
+            searchInput.value = '';
+          }
+          if (stageFilter && stageFilter.options.length) {
+            stageFilter.value = String(stageFilter.options[0].value || 'all');
+          }
+          if (handoffFilter && handoffFilter.options.length) {
+            handoffFilter.value = String(handoffFilter.options[0].value || 'all');
+          }
+          if (sortFilter && sortFilter.options.length) {
+            sortFilter.value = String(sortFilter.options[0].value || 'updated_desc');
+          }
+          applyFlowFilters();
+        });
+      }
+
+      applyFlowFilters();
+    }
+
+    function mountSearchShortcut() {
+      const searchInputs = Array.from(
+        document.querySelectorAll(
+          '[data-requests-search-input], [data-clients-search-input], [data-samples-search-input], [data-analysis-search-input], [data-flow-search-input], [data-courier-search-input], [data-locality-search-input]'
+        )
+      );
+      if (!searchInputs.length) return;
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== '/' || event.altKey || event.ctrlKey || event.metaKey) {
+          return;
+        }
+
+        const activeElement = document.activeElement;
+        const activeTag = activeElement && activeElement.tagName
+          ? activeElement.tagName.toLowerCase()
+          : '';
+        if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || (activeElement && activeElement.isContentEditable)) {
+          return;
+        }
+
+        const targetInput = searchInputs.find(
+          (input) => input && input.offsetParent !== null && !input.disabled
+        );
+        if (!targetInput) return;
+
+        event.preventDefault();
+        targetInput.focus();
+        targetInput.select();
+      });
+    }
+
     function mountFlowDetailsModal() {
       const modal = document.querySelector('#flow-details-modal');
       if (!modal) return;
@@ -1439,6 +2461,14 @@
                 status: statusValue,
               };
             },
+            onSuccess(_ctrl, row, data) {
+              const status = String((data || {}).status || '').trim();
+              if (status) {
+                row.dataset.requestStatus = status;
+              }
+              refreshSearchTokenForElement(row);
+              document.dispatchEvent(new CustomEvent('requests:row-updated'));
+            },
           })
         );
       });
@@ -1456,6 +2486,14 @@
                 request_id: requestId,
                 priority: priorityValue,
               };
+            },
+            onSuccess(_ctrl, row, data) {
+              const priority = String((data || {}).priority || '').trim();
+              if (priority) {
+                row.dataset.requestPriority = priority;
+              }
+              refreshSearchTokenForElement(row);
+              document.dispatchEvent(new CustomEvent('requests:row-updated'));
             },
           })
         );
@@ -1475,6 +2513,10 @@
                 request_id: requestId,
                 sample_count: sampleCountValue,
               };
+            },
+            onSuccess(_ctrl, row) {
+              refreshSearchTokenForElement(row);
+              document.dispatchEvent(new CustomEvent('requests:row-updated'));
             },
           });
 
@@ -1503,8 +2545,10 @@
                 sample_types: sampleTypesValue,
               };
             },
-            onSuccess(ctrl) {
+            onSuccess(ctrl, row) {
               updateSampleTypesDisplay(ctrl);
+              refreshSearchTokenForElement(row);
+              document.dispatchEvent(new CustomEvent('requests:row-updated'));
             },
             onError(ctrl) {
               updateSampleTypesDisplay(ctrl);
@@ -1545,11 +2589,31 @@
                 status: statusValue,
               };
             },
-            onSuccess(ctrl, _row, data) {
+            onSuccess(ctrl, row, data) {
               const sampleId = String((data || {}).sample_id || '').trim();
-              if (!sampleId) return;
-              ctrl.dataset.sampleId = sampleId;
-              ctrl.dataset.seedToken = '';
+              if (sampleId) {
+                ctrl.dataset.sampleId = sampleId;
+                ctrl.dataset.seedToken = '';
+              }
+
+              const statusValue = String((data || {}).status || '').trim();
+              const statusLabel = String((data || {}).status_label || '').trim();
+              if (statusValue) {
+                row.dataset.sampleStatus = statusValue;
+              }
+
+              const currentPriority = String(ctrl.dataset.seedPriority || row.dataset.samplePriority || '').trim();
+              if (currentPriority) {
+                row.dataset.samplePriority = currentPriority;
+              }
+
+              refreshSearchTokenForElement(row);
+              const statusBadge = row.querySelector('.status-badge');
+              if (statusBadge && statusLabel) {
+                statusBadge.textContent = statusLabel;
+              }
+
+              document.dispatchEvent(new CustomEvent('samples:row-updated'));
             },
           })
         );
@@ -2245,6 +3309,20 @@
           }
 
           control.dataset.lastValue = currentValue;
+
+          if (kind === 'assignment') {
+            row.dataset.clientHasCourier = currentValue ? 'yes' : 'no';
+          }
+          if (kind === 'profile' && field === 'client_type') {
+            row.dataset.clientType = currentValue;
+          }
+          if (kind === 'profile' && field === 'electronic_invoicing') {
+            row.dataset.clientFe = currentValue || 'sin_dato';
+          }
+
+          refreshSearchTokenForElement(row);
+          document.dispatchEvent(new CustomEvent('clients:row-updated'));
+
           setControlState(control, 'is-success');
           setRowStatus(row, 'ok', 'Guardado');
           setTimeout(() => {
@@ -2281,6 +3359,12 @@
     mountRevenueBars();
     mountTrafficLine();
     mountAnalysisTop();
+    mountSolicitudesFilters();
+    mountClientesFilters();
+    mountMuestrasFilters();
+    mountAnalisisFilters();
+    mountFlujoFilters();
+    mountSearchShortcut();
     mountFlowDetailsModal();
     mountOperationalStatusEditing();
     mountMotorizadosFilters();

@@ -1602,10 +1602,39 @@ tbody tr:nth-child(even) {
   justify-items: end;
 }
 
+.dashboard-filter-toolbar {
+  margin-bottom: 10px;
+  justify-items: start;
+}
+
+.dashboard-filter-toolbar .project-search {
+  min-width: 240px;
+}
+
+.dashboard-filter-toolbar .table-filter-row {
+  justify-content: flex-start;
+}
+
+.dashboard-filter-toolbar .table-counter {
+  justify-self: start;
+}
+
+.flow-filter-toolbar {
+  margin-bottom: 4px;
+}
+
 .table-filter-row {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.table-filter-row .ghost-btn-sm {
+  white-space: nowrap;
+}
+
+.filter-sort-select {
+  min-width: 210px;
 }
 
 .mot-filter-select {

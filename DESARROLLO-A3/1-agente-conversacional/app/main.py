@@ -2821,6 +2821,82 @@ def assignment_from_client(client: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def build_demo_locality_coverage_from_assignments(
+    *,
+    clients_rows: list[dict[str, Any]],
+    couriers_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    courier_index: dict[str, dict[str, Any]] = {}
+    for row in couriers_rows:
+        courier_id = str(row.get("id") or "").strip()
+        courier_name = str(row.get("name") or "").strip()
+        if not courier_id or not courier_name:
+            continue
+        courier_index[courier_id] = row
+
+    if not courier_index:
+        return []
+
+    locality_votes: dict[str, Counter[str]] = {}
+    for client in clients_rows:
+        locality = resolve_bogota_locality(client.get("zone") or client.get("city"))
+        if not locality:
+            continue
+
+        assignment = assignment_from_client(client)
+        if not isinstance(assignment, dict):
+            continue
+
+        courier_id = str(assignment.get("courier_id") or "").strip()
+        if not courier_id:
+            courier_payload = assignment.get("couriers")
+            if isinstance(courier_payload, dict):
+                courier_id = str(courier_payload.get("id") or "").strip()
+
+        if courier_id not in courier_index:
+            continue
+
+        locality_votes.setdefault(locality["code"], Counter())[courier_id] += 1
+
+    ordered_courier_ids = sorted(
+        courier_index.keys(),
+        key=lambda courier_id: normalize_lookup_key(
+            str(courier_index[courier_id].get("name") or "")
+        ),
+    )
+    if not ordered_courier_ids:
+        return []
+
+    now_iso = datetime.now().isoformat()
+    demo_rows: list[dict[str, Any]] = []
+    for index, locality in enumerate(BOGOTA_LOCALITIES):
+        locality_code = locality["code"]
+        vote_counter = locality_votes.get(locality_code)
+        if vote_counter:
+            selected_courier_id = vote_counter.most_common(1)[0][0]
+        else:
+            selected_courier_id = ordered_courier_ids[index % len(ordered_courier_ids)]
+
+        courier_row = courier_index.get(selected_courier_id, {})
+        demo_rows.append(
+            {
+                "locality_code": locality_code,
+                "locality_name": locality["name"],
+                "courier_id": selected_courier_id,
+                "assigned_by": "dashboard_demo_video",
+                "assigned_at": now_iso,
+                "couriers": {
+                    "id": selected_courier_id,
+                    "name": courier_row.get("name"),
+                    "phone": courier_row.get("phone"),
+                    "availability": courier_row.get("availability") or "available",
+                },
+            }
+        )
+
+    return demo_rows
+
+
 def format_turnaround_label(hours: int | None) -> str:
     if not hours:
         return "Por definir"
@@ -2985,10 +3061,12 @@ def build_dashboard_context() -> dict[str, Any]:
         [],
     )
     couriers = safe_fetch(lambda: supabase.list_active_couriers(limit=2000), [])
-    locality_coverage = safe_fetch(
-        lambda: supabase.list_courier_locality_coverage(limit=400),
-        [],
-    )
+    locality_coverage_fetch_status = 200
+    try:
+        locality_coverage = supabase.list_courier_locality_coverage(limit=400)
+    except httpx.HTTPStatusError as exc:
+        locality_coverage = []
+        locality_coverage_fetch_status = exc.response.status_code
     requests_rows = safe_fetch(lambda: supabase.list_requests(limit=4000), [])
     conversations = safe_fetch(lambda: supabase.list_recent_conversations(limit=300), [])
     messages = safe_fetch(lambda: supabase.list_recent_messages(limit=500), [])
@@ -3127,7 +3205,18 @@ def build_dashboard_context() -> dict[str, Any]:
 
     couriers_options.sort(key=lambda row: str(row.get("name") or ""))
 
+    locality_coverage_demo_mode = False
+    locality_coverage_demo_reason = ""
     locality_coverage_rows = ensure_dict_rows(locality_coverage)
+    if not locality_coverage_rows and locality_coverage_fetch_status == 404:
+        locality_coverage_rows = build_demo_locality_coverage_from_assignments(
+            clients_rows=ensure_dict_rows(clients),
+            couriers_rows=courier_rows,
+        )
+        if locality_coverage_rows:
+            locality_coverage_demo_mode = True
+            locality_coverage_demo_reason = "coverage_table_missing"
+
     locality_coverage_by_code: dict[str, dict[str, Any]] = {}
     locality_coverage_by_name: dict[str, dict[str, Any]] = {}
     localities_by_courier: dict[str, list[str]] = {}
@@ -3592,6 +3681,18 @@ def build_dashboard_context() -> dict[str, Any]:
     busiest_courier_clients = int(courier_load_leader.get("clients_count_from_coverage") or 0)
 
     motorizados_alerts: list[dict[str, Any]] = []
+    if locality_coverage_demo_mode:
+        motorizados_alerts.append(
+            {
+                "level": "warning",
+                "title": "Modo demo activo",
+                "detail": (
+                    "Se muestran asignaciones simuladas para video/demo porque la tabla de cobertura "
+                    "aun no esta disponible en esta base."
+                ),
+            }
+        )
+
     if localities_pending > 0:
         motorizados_alerts.append(
             {
@@ -3966,6 +4067,8 @@ def build_dashboard_context() -> dict[str, Any]:
             "localities_with_clients_without_coverage": localities_with_clients_without_coverage,
             "couriers_without_phone": couriers_without_phone,
         },
+        "locality_coverage_demo_mode": locality_coverage_demo_mode,
+        "locality_coverage_demo_reason": locality_coverage_demo_reason,
         "motorizados_summary": motorizados_summary,
         "motorizados_alerts": motorizados_alerts,
         "client_type_options": CLIENT_TYPE_OPTIONS,
