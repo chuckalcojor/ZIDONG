@@ -6,6 +6,7 @@ import hashlib
 import time
 from collections import Counter
 from datetime import datetime
+from difflib import SequenceMatcher
 from functools import wraps
 from typing import Any
 
@@ -781,11 +782,39 @@ NEW_CLIENT_POST_REGISTRATION_ROUTE_MESSAGE = (
     "Genial, retomemos la programacion de ruta que solicitaste. "
     "Para continuar, comparteme tu NIF o el nombre fiscal de la veterinaria para ubicar tu registro."
 )
+NEW_CLIENT_MANUAL_HANDOFF_MESSAGE = (
+    "Gracias por escribirnos. Como eres cliente nuevo, te vamos a redirigir a atencion al cliente "
+    "para que el equipo de recepcion y servicio al cliente complete tu registro manualmente "
+    "y continue con tu solicitud."
+)
 ROUTE_CLIENT_IDENTIFICATION_MESSAGE = (
     "Perfecto, te ayudo con eso. "
     "Primero necesito confirmar si ya estas registrado. "
     "Comparteme tu NIF o dime el nombre de la veterinaria para ubicar tu registro. "
     "Si aun no estas registrado, te ayudo a hacerlo ahora."
+)
+ROUTE_ALREADY_PROGRAMMED_MESSAGE = (
+    "Tu solicitud ya quedó programada. "
+    "Si deseas, puedo ayudarte ahora con resultados, pagos, PQRS u otra consulta."
+)
+ROUTE_CHAT_CLOSURE_MESSAGE = (
+    "Perfecto, quedamos atentos. "
+    "Cuando necesites apoyo con resultados, pagos, PQRS u otra consulta, me escribes."
+)
+ROUTE_CANCELLATION_MESSAGE = (
+    "Entendido, cancele la solicitud de programacion de ruta en este chat. "
+    "Si deseas retomarla mas tarde o necesitas otra gestion, te apoyo de inmediato."
+)
+ROUTE_CLIENT_NAME_VALIDATION_MESSAGE = (
+    "No pude ubicar ese NIT/NID en este momento. "
+    "Para continuar, comparteme por favor el nombre de la veterinaria tal como aparece en el registro."
+)
+ROUTE_CLIENT_TAX_VALIDATION_MESSAGE = (
+    "No pude ubicar ese nombre de veterinaria. "
+    "Para continuar, comparteme por favor el NIT/NID (con o sin digito de verificacion)."
+)
+ROUTE_CLIENT_VALIDATION_HANDOFF_MESSAGE = (
+    "Te vamos a pasar a atencion al cliente para validar tu informacion y continuar con tu solicitud."
 )
 
 
@@ -817,6 +846,13 @@ def normalize_lookup_key(text: str) -> str:
     )
     translated = re.sub(r"[^a-z0-9 ]", " ", translated)
     return re.sub(r"\s+", " ", translated).strip()
+
+
+def is_truthy_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = normalize_lookup_key(str(value or ""))
+    return normalized in {"1", "true", "yes", "si", "on"}
 
 
 def normalize_locality_code(value: Any) -> str:
@@ -1026,7 +1062,7 @@ def normalize_next_action_token(
     normalized = normalize_lookup_key(candidate)
     if not normalized:
         if service_area == "new_client":
-            return "compartir_formulario_registro_cliente"
+            return "continuar_conversacion"
         if service_area == "unknown":
             return "atender_otra_consulta"
         return "continuar_conversacion"
@@ -1057,7 +1093,7 @@ def normalize_next_action_token(
             return "continuar_conversacion"
         return "solicitar_cliente_y_direccion"
     if service_area == "new_client":
-        return "compartir_formulario_registro_cliente"
+        return "continuar_conversacion"
     if service_area == "unknown":
         return "atender_otra_consulta"
     return "continuar_conversacion"
@@ -1578,7 +1614,7 @@ def is_affirmative_reply(text: str) -> bool:
 
 
 def is_negative_reply(text: str) -> bool:
-    normalized = normalize_text_value(text)
+    normalized = normalize_lookup_key(text)
     if not normalized:
         return False
     if normalized in NEGATIVE_TOKENS:
@@ -1588,10 +1624,134 @@ def is_negative_reply(text: str) -> bool:
     if not words:
         return False
 
-    if words[0] == "no":
+    if words[0] == "no" or normalized.startswith("no "):
         return True
 
-    return any(token in normalized for token in ("cambiar", "cambia", "incorrect", "ajustar"))
+    return any(
+        token in normalized
+        for token in (
+            "cambiar",
+            "cambia",
+            "incorrect",
+            "ajustar",
+            "cancelar",
+            "cancel",
+            "anular",
+            "ya no quiero",
+            "detener",
+            "suspender",
+        )
+    )
+
+
+def is_no_thanks_message(text: str) -> bool:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return False
+
+    no_thanks_patterns = (
+        "no gracias",
+        "gracias no",
+        "no muchas gracias",
+        "todo bien gracias",
+        "eso es todo",
+        "eso era todo",
+        "nada mas gracias",
+        "ninguna otra consulta",
+    )
+    return any(pattern in normalized for pattern in no_thanks_patterns)
+
+
+def is_route_cancellation_request(text: str) -> bool:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return False
+
+    route_markers = (
+        "ruta",
+        "program",
+        "retiro",
+        "recogida",
+        "recoleccion",
+        "muestra",
+        "domicilio",
+    )
+    has_cancel_marker = any(
+        token in normalized
+        for token in (
+            "cancel",
+            "cancelar",
+            "anular",
+            "ya no quiero program",
+            "ya no quiero agendar",
+            "detener",
+            "suspender",
+        )
+    )
+    has_route_marker = any(token in normalized for token in route_markers)
+    return has_cancel_marker and has_route_marker
+
+
+def is_client_identity_mismatch_reply(text: str) -> bool:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return False
+
+    mismatch_patterns = (
+        "no es mi veterinaria",
+        "no es mi clinica",
+        "ese no es mi cliente",
+        "cliente incorrect",
+        "veterinaria incorrect",
+        "registro incorrect",
+        "te equivocaste de cliente",
+        "no corresponde",
+        "es otra veterinaria",
+        "es otro cliente",
+    )
+    if any(pattern in normalized for pattern in mismatch_patterns):
+        return True
+
+    return "cliente" in normalized and "incorrect" in normalized
+
+
+def is_catalog_symptom_followup(text: str) -> bool:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return False
+
+    symptom_markers = ("sintoma", "sintomas", "signo", "signos", "malestar")
+    exam_markers = (
+        "examen",
+        "analisis",
+        "prueba",
+        "que examen",
+        "cual examen",
+        "se le puede hacer",
+        "se le puede realizar",
+        "que le puedo mandar",
+    )
+    patient_markers = ("perro", "gato", "mascota", "paciente")
+
+    has_symptom_marker = any(token in normalized for token in symptom_markers)
+    has_exam_or_patient_context = any(token in normalized for token in exam_markers) or any(
+        token in normalized for token in patient_markers
+    )
+    return has_symptom_marker and has_exam_or_patient_context
+
+
+def build_catalog_follow_up_reply(text: str) -> str:
+    if is_catalog_symptom_followup(text):
+        return (
+            "Claro, puedes compartirme los sintomas. "
+            "Con especie, edad aproximada y sintomas principales te oriento sobre el examen mas util, "
+            "toma de muestra y valor referencial."
+        )
+
+    return (
+        "Para orientarte mejor, comparteme el nombre exacto del examen o el tipo de muestra "
+        "(por ejemplo sangre, orina o heces) y te doy valor referencial, toma y tiempo estimado."
+    )
 
 
 def is_help_inquiry(text: str) -> bool:
@@ -2129,6 +2289,9 @@ def build_catalog_guidance_reply(text: str) -> str | None:
     if not inquiry_detected:
         return None
 
+    if is_catalog_symptom_followup(text):
+        return build_catalog_follow_up_reply(text)
+
     list_catalog = getattr(supabase, "list_catalog_tests", None)
     if not callable(list_catalog):
         return None
@@ -2345,6 +2508,56 @@ def normalize_tax_id(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", (value or "").upper())
 
 
+def build_tax_id_lookup_keys(value: str) -> set[str]:
+    raw = (value or "").strip()
+    if not raw:
+        return set()
+
+    normalized = normalize_tax_id(raw)
+    if not normalized:
+        return set()
+
+    keys = {normalized}
+
+    hyphen_match = re.match(r"^\s*([A-Za-z0-9]+)\s*[-]\s*([A-Za-z0-9])\s*$", raw)
+    if hyphen_match:
+        base = normalize_tax_id(hyphen_match.group(1))
+        dv = normalize_tax_id(hyphen_match.group(2))
+        if base:
+            keys.add(base)
+            if dv:
+                keys.add(f"{base}{dv}")
+    elif normalized.isdigit() and len(normalized) >= 8:
+        keys.add(normalized[:-1])
+
+    return {key for key in keys if len(key) >= 5}
+
+
+def tax_id_match_score(input_tax_id: str, candidate_tax_id: str) -> float:
+    input_normalized = normalize_tax_id(input_tax_id)
+    candidate_normalized = normalize_tax_id(candidate_tax_id)
+    if not input_normalized or not candidate_normalized:
+        return 0.0
+
+    if input_normalized == candidate_normalized:
+        return 1.0
+
+    input_keys = build_tax_id_lookup_keys(input_tax_id)
+    candidate_keys = build_tax_id_lookup_keys(candidate_tax_id)
+    shared_keys = input_keys.intersection(candidate_keys)
+    if not shared_keys:
+        return 0.0
+
+    longest_shared = max(len(item) for item in shared_keys)
+    score = min(0.95, 0.72 + (longest_shared / 100.0))
+
+    if input_normalized.isdigit() and candidate_normalized.isdigit():
+        if input_normalized[:-1] == candidate_normalized or candidate_normalized[:-1] == input_normalized:
+            score = max(score, 0.9)
+
+    return score
+
+
 def extract_tax_id_candidate(text: str) -> str | None:
     raw = (text or "").strip()
     if not raw:
@@ -2364,6 +2577,75 @@ def extract_tax_id_candidate(text: str) -> str | None:
         return candidate if len(candidate) >= 5 else None
 
     return None
+
+
+def extract_accounting_invoice_candidate(text: str) -> str | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+
+    tagged = re.search(
+        r"(?:factura|recibo|comprobante|cuenta)\s*(?:numero|nro|no|#)?\s*[:#-]?\s*([A-Za-z0-9-]{4,24})",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if tagged:
+        return tagged.group(1).strip()
+
+    if re.fullmatch(r"[A-Za-z0-9-]{5,24}", raw) and any(char.isdigit() for char in raw):
+        return raw
+
+    return None
+
+
+def extract_accounting_period_candidate(text: str) -> str | None:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return None
+
+    month_match = re.search(
+        r"\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b",
+        normalized,
+    )
+    if month_match:
+        year_match = re.search(r"\b(20\d{2})\b", normalized)
+        if year_match:
+            return f"{month_match.group(1)} {year_match.group(1)}"
+        return month_match.group(1)
+
+    period_match = re.search(
+        r"\b(?:periodo|mes|corte|quincena|trimestre)\b[^\n]{0,24}",
+        normalized,
+    )
+    if period_match:
+        return period_match.group(0).strip()
+
+    return None
+
+
+def should_apply_accounting_guard(*, session: dict[str, Any] | None, text: str, reply: str) -> bool:
+    normalized = normalize_text_value(text)
+    if not normalized:
+        return False
+
+    if extract_tax_id_candidate(text):
+        return True
+    if extract_accounting_period_candidate(text):
+        return True
+
+    invoice_candidate = extract_accounting_invoice_candidate(text)
+    if invoice_candidate:
+        return True
+
+    if re.fullmatch(r"\d{5,20}", normalized):
+        return True
+
+    previous_bot_message = ((session or {}).get("last_bot_message") or "").strip().lower()
+    current_reply = (reply or "").strip().lower()
+    if previous_bot_message and previous_bot_message == current_reply and "contabilidad" in current_reply:
+        return True
+
+    return False
 
 
 def user_declares_not_registered(text: str) -> bool:
@@ -2514,6 +2796,175 @@ def extract_clinic_name_hint(text: str) -> str | None:
     return hint
 
 
+def is_probable_clinic_name_input(text: str) -> bool:
+    normalized = normalize_lookup_key(text)
+    if not normalized:
+        return False
+
+    strong_markers = (
+        "veterinaria",
+        "clinica",
+        "nombre fiscal",
+        "nombre de la veterinaria",
+    )
+    if any(marker in normalized for marker in strong_markers):
+        return True
+
+    tokens = [token for token in normalized.split() if token]
+    if not tokens or len(tokens) > 3:
+        return False
+
+    blocked_tokens = {
+        "a",
+        "al",
+        "como",
+        "con",
+        "de",
+        "del",
+        "el",
+        "en",
+        "es",
+        "la",
+        "las",
+        "lo",
+        "los",
+        "me",
+        "mi",
+        "mis",
+        "por",
+        "que",
+        "se",
+        "si",
+        "tal",
+        "tu",
+        "un",
+        "una",
+        "y",
+        "hola",
+        "buenas",
+        "buenos",
+        "dias",
+        "tardes",
+        "ayudame",
+        "ayudan",
+        "ayudas",
+        "necesito",
+        "quiero",
+        "programar",
+        "agendar",
+        "ruta",
+        "retiro",
+        "recogida",
+        "recoleccion",
+        "muestra",
+        "muestras",
+        "servicio",
+        "servicios",
+        "precio",
+        "costos",
+        "analisis",
+        "examen",
+        "resultado",
+        "resultados",
+        "contabilidad",
+        "pqrs",
+        "consulta",
+        "ayuda",
+        "menu",
+        "opcion",
+    }
+
+    if all(token in blocked_tokens for token in tokens):
+        return False
+
+    if len(tokens) == 1:
+        single = tokens[0]
+        if single.isdigit():
+            return False
+        return len(single) >= 4
+
+    meaningful_tokens = [
+        token
+        for token in tokens
+        if token not in blocked_tokens and not token.isdigit() and len(token) >= 3
+    ]
+    return bool(meaningful_tokens)
+
+
+def clinic_name_similarity_score(query_name: str, candidate_name: str) -> float:
+    query = normalize_lookup_key(query_name)
+    candidate = normalize_lookup_key(candidate_name)
+    if not query or not candidate:
+        return 0.0
+
+    if query == candidate:
+        return 1.0
+
+    query_tokens = [token for token in query.split() if token]
+    candidate_tokens = [token for token in candidate.split() if token]
+    token_overlap = 0.0
+    if query_tokens and candidate_tokens:
+        intersection = set(query_tokens).intersection(candidate_tokens)
+        token_overlap = len(intersection) / max(len(set(query_tokens)), len(set(candidate_tokens)))
+
+    containment_bonus = 0.0
+    if query in candidate or candidate in query:
+        containment_bonus = min(len(query), len(candidate)) / max(len(query), len(candidate))
+
+    sequence_ratio = SequenceMatcher(None, query, candidate).ratio()
+    combined = (token_overlap * 0.75) + (containment_bonus * 0.25)
+    return max(sequence_ratio, combined)
+
+
+def is_reasonable_clinic_match(query_name: str, candidate_name: str, score: float) -> bool:
+    query = normalize_lookup_key(query_name)
+    candidate = normalize_lookup_key(candidate_name)
+    if not query or not candidate:
+        return False
+
+    if query == candidate or score >= 0.9:
+        return True
+
+    query_tokens = set(query.split())
+    candidate_tokens = set(candidate.split())
+    overlap_count = len(query_tokens.intersection(candidate_tokens))
+
+    if overlap_count >= 2 and score >= 0.72:
+        return True
+    if overlap_count >= 1 and score >= 0.82:
+        return True
+    if len(query_tokens) == 1 and len(candidate_tokens) == 1 and score >= 0.8:
+        return True
+
+    return False
+
+
+def select_best_clinic_candidate(clinic_hint: str, candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    ranked: list[tuple[float, dict[str, Any]]] = []
+    for row in candidates:
+        name = str(row.get("clinic_name") or "").strip()
+        if not name:
+            continue
+        score = clinic_name_similarity_score(clinic_hint, name)
+        if score > 0:
+            ranked.append((score, row))
+
+    if not ranked:
+        return None
+
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_row = ranked[0]
+    second_score = ranked[1][0] if len(ranked) > 1 else 0.0
+
+    if not is_reasonable_clinic_match(clinic_hint, str(best_row.get("clinic_name") or ""), best_score):
+        return None
+
+    if len(ranked) > 1 and best_score < 0.9 and (best_score - second_score) < 0.06:
+        return None
+
+    return dict(best_row)
+
+
 def extract_form_value(payload: dict[str, Any], aliases: tuple[str, ...]) -> str:
     if not isinstance(payload, dict):
         return ""
@@ -2550,56 +3001,169 @@ def ensure_dict_rows(value: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def client_candidate_signature(candidate: dict[str, Any]) -> str:
+    candidate_id = str(candidate.get("id") or "").strip()
+    if candidate_id:
+        return f"id:{candidate_id}"
+    clinic_key = normalize_lookup_key(str(candidate.get("clinic_name") or ""))
+    tax_key = normalize_tax_id(str(candidate.get("tax_id") or ""))
+    return f"key:{clinic_key}|{tax_key}"
+
+
+def append_unique_client_candidate(
+    bucket: list[dict[str, Any]],
+    seen_signatures: set[str],
+    candidate: dict[str, Any],
+) -> None:
+    if not isinstance(candidate, dict):
+        return
+    signature = client_candidate_signature(candidate)
+    if signature in seen_signatures:
+        return
+    seen_signatures.add(signature)
+    bucket.append(dict(candidate))
+
+
+def enrich_client_address_with_knowledge(client_row: dict[str, Any], clinic_hint: str) -> dict[str, Any]:
+    enriched = dict(client_row)
+    if is_meaningful_value(enriched.get("address")):
+        return enriched
+
+    search_a3_knowledge = getattr(supabase, "search_a3_knowledge_by_clinic_name", None)
+    if not callable(search_a3_knowledge):
+        return enriched
+
+    try:
+        knowledge_rows = ensure_dict_rows(search_a3_knowledge(clinic_hint, limit=1))
+    except httpx.HTTPStatusError:
+        knowledge_rows = []
+
+    if knowledge_rows:
+        enriched["address"] = knowledge_rows[0].get("address")
+
+    return enriched
+
+
+def find_registered_client_by_tax_id(tax_id: str) -> dict[str, Any] | None:
+    lookup_keys = build_tax_id_lookup_keys(tax_id)
+    if not lookup_keys:
+        return None
+
+    candidates: list[dict[str, Any]] = []
+    seen_signatures: set[str] = set()
+
+    get_client_by_tax_id = getattr(supabase, "get_client_by_tax_id", None)
+    if callable(get_client_by_tax_id):
+        for key in lookup_keys:
+            try:
+                row = get_client_by_tax_id(key)
+            except httpx.HTTPStatusError:
+                row = None
+            if isinstance(row, dict):
+                append_unique_client_candidate(candidates, seen_signatures, row)
+
+    search_clients_by_tax_id = getattr(supabase, "search_clients_by_tax_id", None)
+    if callable(search_clients_by_tax_id):
+        for key in lookup_keys:
+            try:
+                rows = ensure_dict_rows(search_clients_by_tax_id(key, limit=12))
+            except httpx.HTTPStatusError:
+                rows = []
+            for row in rows:
+                append_unique_client_candidate(candidates, seen_signatures, row)
+
+    if not candidates:
+        list_clients = getattr(supabase, "list_clients_with_assignment", None)
+        if callable(list_clients):
+            try:
+                rows = ensure_dict_rows(list_clients())
+            except httpx.HTTPStatusError:
+                rows = []
+            for row in rows:
+                append_unique_client_candidate(candidates, seen_signatures, row)
+
+    best_client: dict[str, Any] | None = None
+    best_score = 0.0
+    for candidate in candidates:
+        score = tax_id_match_score(tax_id, str(candidate.get("tax_id") or ""))
+        if score > best_score:
+            best_score = score
+            best_client = dict(candidate)
+
+    if best_client and best_score >= 0.75:
+        clinic_hint = str(best_client.get("clinic_name") or "")
+        return enrich_client_address_with_knowledge(best_client, clinic_hint)
+
+    return None
+
+
+def find_registered_client_by_clinic_name(clinic_hint: str) -> dict[str, Any] | None:
+    if not clinic_hint:
+        return None
+    if not is_probable_clinic_name_input(clinic_hint):
+        return None
+
+    candidates: list[dict[str, Any]] = []
+    seen_signatures: set[str] = set()
+
+    search_by_name = getattr(supabase, "search_clients_by_clinic_name", None)
+    if callable(search_by_name):
+        try:
+            rows = ensure_dict_rows(search_by_name(clinic_hint, limit=12))
+        except httpx.HTTPStatusError:
+            rows = []
+        for row in rows:
+            append_unique_client_candidate(candidates, seen_signatures, row)
+
+    if len(candidates) < 3:
+        list_clients = getattr(supabase, "list_clients_with_assignment", None)
+        if callable(list_clients):
+            try:
+                rows = ensure_dict_rows(list_clients())
+            except httpx.HTTPStatusError:
+                rows = []
+            for row in rows:
+                append_unique_client_candidate(candidates, seen_signatures, row)
+
+    best_candidate = select_best_clinic_candidate(clinic_hint, candidates)
+    if best_candidate:
+        return enrich_client_address_with_knowledge(best_candidate, clinic_hint)
+
+    search_a3_knowledge = getattr(supabase, "search_a3_knowledge_by_clinic_name", None)
+    if callable(search_a3_knowledge):
+        try:
+            knowledge_rows = ensure_dict_rows(search_a3_knowledge(clinic_hint, limit=10))
+        except httpx.HTTPStatusError:
+            knowledge_rows = []
+
+        best_knowledge = select_best_clinic_candidate(clinic_hint, knowledge_rows)
+        if best_knowledge:
+            return {
+                "id": None,
+                "clinic_name": best_knowledge.get("clinic_name"),
+                "phone": best_knowledge.get("phone"),
+                "tax_id": None,
+                "address": best_knowledge.get("address"),
+                "clinic_key": best_knowledge.get("clinic_key"),
+                "is_registered": bool(best_knowledge.get("is_registered", False)),
+                "is_new_client": bool(best_knowledge.get("is_new_client", False)),
+            }
+
+    return None
+
+
 def identify_client_by_tax_id_or_clinic(incoming_text: str) -> dict[str, Any] | None:
     tax_id = extract_tax_id_candidate(incoming_text)
     if tax_id:
-        try:
-            client = supabase.get_client_by_tax_id(tax_id)
-            if client:
-                return client
-        except httpx.HTTPStatusError:
-            return None
+        client_by_tax = find_registered_client_by_tax_id(tax_id)
+        if client_by_tax:
+            return client_by_tax
 
     clinic_hint = extract_clinic_name_hint(incoming_text)
     if clinic_hint:
-        try:
-            matches = supabase.search_clients_by_clinic_name(clinic_hint, limit=3)
-        except httpx.HTTPStatusError:
-            return None
-        if len(matches) == 1:
-            client_match = dict(matches[0])
-            if not is_meaningful_value(client_match.get("address")):
-                search_a3_knowledge = getattr(supabase, "search_a3_knowledge_by_clinic_name", None)
-                if callable(search_a3_knowledge):
-                    try:
-                        knowledge_rows = ensure_dict_rows(search_a3_knowledge(clinic_hint, limit=1))
-                    except httpx.HTTPStatusError:
-                        knowledge_rows = []
-                    if knowledge_rows:
-                        client_match["address"] = knowledge_rows[0].get("address")
-            return client_match
-
-        search_a3_knowledge = getattr(supabase, "search_a3_knowledge_by_clinic_name", None)
-        if callable(search_a3_knowledge):
-            try:
-                raw_matches = search_a3_knowledge(clinic_hint, limit=3)
-            except httpx.HTTPStatusError:
-                raw_matches = []
-
-            knowledge_matches = ensure_dict_rows(raw_matches)
-
-            if knowledge_matches:
-                best = knowledge_matches[0]
-                return {
-                    "id": None,
-                    "clinic_name": best.get("clinic_name"),
-                    "phone": best.get("phone"),
-                    "tax_id": None,
-                    "address": best.get("address"),
-                    "clinic_key": best.get("clinic_key"),
-                    "is_registered": bool(best.get("is_registered", False)),
-                    "is_new_client": bool(best.get("is_new_client", False)),
-                }
+        client_by_name = find_registered_client_by_clinic_name(clinic_hint)
+        if client_by_name:
+            return client_by_name
 
     return None
 
@@ -4432,7 +4996,7 @@ def should_attach_route_reminder(
     if service_area != "route_scheduling":
         return False
 
-    if status in {"confirmed", "closed"}:
+    if status in {"confirmed", "closed", "cancelled"}:
         if next_action == "continuar_conversacion":
             return False
         return True
@@ -4461,13 +5025,171 @@ def should_share_new_client_registration(
     requires_handoff: bool,
     reply: str,
 ) -> bool:
+    _ = reply
+
     if requires_handoff:
         return False
 
     if service_area != "new_client":
         return False
 
-    return reply != INTENT_CLARIFICATION_MESSAGE
+    return False
+
+
+def apply_accounting_conversation_guard(
+    *,
+    text: str,
+    captured_fields: dict[str, Any],
+) -> tuple[
+    str,
+    str,
+    str,
+    str,
+    list[str],
+    dict[str, Any],
+    bool,
+    str,
+    str,
+    str,
+    str,
+]:
+    normalized_text = normalize_text_value(text)
+    tax_id = str(captured_fields.get("accounting_tax_id") or captured_fields.get("tax_id") or "").strip()
+    invoice_reference = str(captured_fields.get("accounting_invoice_reference") or "").strip()
+    period_reference = str(captured_fields.get("accounting_period_reference") or "").strip()
+    attempts = int(captured_fields.get("accounting_attempts", 0) or 0)
+
+    new_data_detected = False
+
+    detected_tax_id = extract_tax_id_candidate(text)
+    if detected_tax_id:
+        if not tax_id:
+            tax_id = detected_tax_id
+            new_data_detected = True
+        elif detected_tax_id != tax_id and not invoice_reference:
+            invoice_reference = detected_tax_id
+            new_data_detected = True
+
+    detected_period = extract_accounting_period_candidate(text)
+    if detected_period and detected_period != period_reference:
+        period_reference = detected_period
+        new_data_detected = True
+
+    detected_invoice = extract_accounting_invoice_candidate(text)
+    if detected_invoice:
+        candidate_invoice = detected_invoice.strip()
+        if tax_id and normalize_lookup_key(candidate_invoice) == normalize_lookup_key(tax_id):
+            candidate_invoice = ""
+        if candidate_invoice and candidate_invoice != invoice_reference:
+            if not tax_id and re.fullmatch(r"\d{5,20}", candidate_invoice):
+                tax_id = candidate_invoice
+            else:
+                invoice_reference = candidate_invoice
+            new_data_detected = True
+
+    if not new_data_detected and re.fullmatch(r"\d{5,20}", normalized_text or ""):
+        numeric_candidate = normalized_text
+        if not tax_id:
+            tax_id = numeric_candidate
+            new_data_detected = True
+        elif not invoice_reference and numeric_candidate != tax_id:
+            invoice_reference = numeric_candidate
+            new_data_detected = True
+
+    if tax_id:
+        captured_fields["accounting_tax_id"] = tax_id
+        captured_fields["tax_id"] = tax_id
+    if invoice_reference:
+        captured_fields["accounting_invoice_reference"] = invoice_reference
+    if period_reference:
+        captured_fields["accounting_period_reference"] = period_reference
+
+    if new_data_detected:
+        attempts = 0
+    elif normalized_text and not is_small_talk_only(text):
+        attempts += 1
+
+    captured_fields["accounting_attempts"] = attempts
+
+    if tax_id and (invoice_reference or period_reference):
+        period_or_invoice = invoice_reference or period_reference
+        reply = (
+            "Perfecto, ya tengo tus datos para contabilidad "
+            f"(NIF/NIT y referencia {period_or_invoice}). "
+            "Te conecto con contabilidad para revisarlo y te confirmamos en breve."
+        )
+        return (
+            "fase_7_escalado",
+            "fase_7_escalado",
+            "escalated",
+            "continuar_conversacion",
+            [],
+            captured_fields,
+            True,
+            "contabilidad",
+            reply,
+            "flow_progress",
+            "",
+        )
+
+    if tax_id:
+        return (
+            "fase_2_recogida_datos",
+            "fase_3_validacion",
+            "in_progress",
+            "continuar_conversacion",
+            ["numero de factura o periodo de cobro"],
+            captured_fields,
+            False,
+            "none",
+            "Perfecto, ya tengo tu NIF/NIT. Para continuar, comparteme numero de factura o periodo de cobro.",
+            "flow_progress",
+            "",
+        )
+
+    if invoice_reference or period_reference:
+        return (
+            "fase_2_recogida_datos",
+            "fase_3_validacion",
+            "in_progress",
+            "continuar_conversacion",
+            ["NIF/NIT"],
+            captured_fields,
+            False,
+            "none",
+            "Perfecto, ya tengo esa referencia. Para avanzar, comparteme tu NIF/NIT.",
+            "flow_progress",
+            "",
+        )
+
+    if attempts >= 2:
+        return (
+            "fase_7_escalado",
+            "fase_7_escalado",
+            "escalated",
+            "continuar_conversacion",
+            [],
+            captured_fields,
+            True,
+            "contabilidad",
+            "Para evitar mas demoras, te conecto con contabilidad y revisan tu caso directamente.",
+            "flow_progress",
+            "",
+        )
+
+    return (
+        "fase_2_recogida_datos",
+        "fase_3_validacion",
+        "in_progress",
+        "continuar_conversacion",
+        ["NIF/NIT y numero de factura o periodo de cobro"],
+        captured_fields,
+        False,
+        "none",
+        "Perfecto, te ayudo con contabilidad. Para revisarlo rapido, comparteme NIF y si tienes numero de factura o periodo de cobro.",
+        "flow_progress",
+        "",
+    )
 
 
 def apply_route_conversation_guard(
@@ -4497,15 +5219,26 @@ def apply_route_conversation_guard(
     last_status = (session or {}).get("status") or ""
     normalized_text = normalize_text_value(text)
 
+    if is_route_cancellation_request(text):
+        captured_fields["route_cancelled"] = "true"
+        return (
+            "fase_6_cierre",
+            "fase_6_cierre",
+            "cancelled",
+            "continuar_conversacion",
+            [],
+            captured_fields,
+        )
+
     if last_action == "solicitar_direccion_actualizada" and normalized_text:
         captured_fields["pickup_address"] = text.strip()
-        captured_fields["pickup_address_confirmed"] = "true"
+        captured_fields["pickup_address_confirmed"] = "false"
         return (
+            "fase_3_validacion",
             "fase_4_confirmacion",
-            "fase_6_cierre",
-            "confirmed",
-            "confirmar_programacion_ruta",
-            [],
+            "in_progress",
+            "confirmar_direccion_retiro",
+            ["confirmacion de direccion"],
             captured_fields,
         )
 
@@ -4522,6 +5255,21 @@ def apply_route_conversation_guard(
             )
 
         if is_negative_reply(text):
+            if is_client_identity_mismatch_reply(text):
+                captured_fields.pop("clinic_name", None)
+                captured_fields.pop("pickup_address", None)
+                captured_fields.pop("pickup_address_confirmed", None)
+                captured_fields.pop("tax_id", None)
+                captured_fields["route_force_client_revalidation"] = "true"
+                captured_fields["route_identification_attempts"] = 0
+                return (
+                    "fase_2_recogida_datos",
+                    "fase_3_validacion",
+                    "in_progress",
+                    "solicitar_nif_o_nombre_fiscal",
+                    ["NIF o nombre fiscal de la veterinaria"],
+                    captured_fields,
+                )
             return (
                 "fase_2_recogida_datos",
                 "fase_3_validacion",
@@ -4750,6 +5498,12 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         explicit_area = "route_scheduling"
     if not explicit_area and session_service_area == "results" and extracted_results_reference:
         explicit_area = "results"
+    if (
+        explicit_area == "new_client"
+        and session_service_area == "route_scheduling"
+        and is_client_identity_mismatch_reply(text)
+    ):
+        explicit_area = "route_scheduling"
     if pending_route_identifier and explicit_area == "new_client" and not user_declares_not_registered(text):
         explicit_area = "route_scheduling"
     if not explicit_area and len(normalize_lookup_key(text)) >= 8 and not used_openai_fallback:
@@ -5077,36 +5831,136 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         and not is_meaningful_value(captured_fields.get("clinic_name"))
         and reply != INTENT_CLARIFICATION_MESSAGE
     ):
-        identified_client = identify_client_by_tax_id_or_clinic(text)
-        if identified_client:
-            client = identified_client
-            client_id = identified_client.get("id")
-            clinic_name = identified_client.get("clinic_name")
-            tax_id = identified_client.get("tax_id")
-            phone_registered = identified_client.get("phone")
-            if clinic_name:
-                captured_fields["clinic_name"] = clinic_name
-            if tax_id:
-                captured_fields["tax_id"] = tax_id
-            if phone_registered:
-                captured_fields["phone"] = phone_registered
+        tax_candidate = extract_tax_id_candidate(text)
+        clinic_hint = extract_clinic_name_hint(text)
+        tax_lookup_failed = is_truthy_flag(captured_fields.get("route_tax_lookup_failed"))
+        clinic_lookup_failed = is_truthy_flag(captured_fields.get("route_clinic_lookup_failed"))
+        last_failed_tax_id = normalize_tax_id(str(captured_fields.get("route_last_failed_tax_id") or ""))
+        last_failed_clinic_name = normalize_lookup_key(
+            str(captured_fields.get("route_last_failed_clinic_name") or "")
+        )
+
+        attempts = int(captured_fields.get("route_identification_attempts", 0) or 0) + 1
+        captured_fields["route_identification_attempts"] = attempts
+
+        if tax_candidate:
+            normalized_tax_id = normalize_tax_id(tax_candidate)
+            identified_client = find_registered_client_by_tax_id(tax_candidate)
+            if identified_client:
+                client = identified_client
+                client_id = identified_client.get("id")
+                clinic_name = identified_client.get("clinic_name")
+                tax_id = identified_client.get("tax_id")
+                phone_registered = identified_client.get("phone")
+                if clinic_name:
+                    captured_fields["clinic_name"] = clinic_name
+                if tax_id:
+                    captured_fields["tax_id"] = tax_id
+                if phone_registered:
+                    captured_fields["phone"] = phone_registered
+
+                captured_fields.pop("route_tax_lookup_failed", None)
+                captured_fields.pop("route_clinic_lookup_failed", None)
+                captured_fields.pop("route_last_failed_tax_id", None)
+                captured_fields.pop("route_last_failed_clinic_name", None)
+                captured_fields["route_identification_attempts"] = 0
+            else:
+                captured_fields["route_tax_lookup_failed"] = True
+                captured_fields["route_last_failed_tax_id"] = normalized_tax_id or last_failed_tax_id
+
+                if clinic_lookup_failed:
+                    phase_current = "fase_7_escalado"
+                    phase_next = "fase_7_escalado"
+                    status = "escalated"
+                    next_action = "continuar_conversacion"
+                    message_mode = "flow_progress"
+                    resume_prompt = ""
+                    missing_fields = []
+                    requires_handoff = True
+                    handoff_area = "operaciones"
+                    reply = ROUTE_CLIENT_VALIDATION_HANDOFF_MESSAGE
+                else:
+                    phase_current = "fase_2_recogida_datos"
+                    phase_next = "fase_3_validacion"
+                    status = "in_progress"
+                    next_action = "solicitar_nif_o_nombre_fiscal"
+                    message_mode = "flow_progress"
+                    resume_prompt = ""
+                    missing_fields = ["nombre de la veterinaria"]
+                    requires_handoff = False
+                    handoff_area = "none"
+                    reply = ROUTE_CLIENT_NAME_VALIDATION_MESSAGE
+
+                    if tax_lookup_failed and normalized_tax_id == last_failed_tax_id:
+                        reply = ROUTE_CLIENT_NAME_VALIDATION_MESSAGE
+
+        elif clinic_hint and is_probable_clinic_name_input(text):
+            normalized_clinic_hint = normalize_lookup_key(clinic_hint)
+            identified_client = find_registered_client_by_clinic_name(clinic_hint)
+            if identified_client:
+                client = identified_client
+                client_id = identified_client.get("id")
+                clinic_name = identified_client.get("clinic_name")
+                tax_id = identified_client.get("tax_id")
+                phone_registered = identified_client.get("phone")
+                if clinic_name:
+                    captured_fields["clinic_name"] = clinic_name
+                if tax_id:
+                    captured_fields["tax_id"] = tax_id
+                if phone_registered:
+                    captured_fields["phone"] = phone_registered
+
+                captured_fields.pop("route_tax_lookup_failed", None)
+                captured_fields.pop("route_clinic_lookup_failed", None)
+                captured_fields.pop("route_last_failed_tax_id", None)
+                captured_fields.pop("route_last_failed_clinic_name", None)
+                captured_fields["route_identification_attempts"] = 0
+            else:
+                captured_fields["route_clinic_lookup_failed"] = True
+                captured_fields["route_last_failed_clinic_name"] = clinic_hint
+
+                if tax_lookup_failed:
+                    phase_current = "fase_7_escalado"
+                    phase_next = "fase_7_escalado"
+                    status = "escalated"
+                    next_action = "continuar_conversacion"
+                    message_mode = "flow_progress"
+                    resume_prompt = ""
+                    missing_fields = []
+                    requires_handoff = True
+                    handoff_area = "operaciones"
+                    reply = ROUTE_CLIENT_VALIDATION_HANDOFF_MESSAGE
+                else:
+                    phase_current = "fase_2_recogida_datos"
+                    phase_next = "fase_3_validacion"
+                    status = "in_progress"
+                    next_action = "solicitar_nif_o_nombre_fiscal"
+                    message_mode = "flow_progress"
+                    resume_prompt = ""
+                    missing_fields = ["NIF/NID"]
+                    requires_handoff = False
+                    handoff_area = "none"
+                    reply = ROUTE_CLIENT_TAX_VALIDATION_MESSAGE
+
+                    if clinic_lookup_failed and normalized_clinic_hint == last_failed_clinic_name:
+                        reply = ROUTE_CLIENT_TAX_VALIDATION_MESSAGE
+
         elif user_declares_not_registered(text):
-            captured_fields["post_registration_service_area"] = "route_scheduling"
-            captured_fields["post_registration_intent"] = "programacion_rutas"
+            captured_fields = clear_post_registration_target(captured_fields)
+            captured_fields["new_client_manual_handoff"] = "true"
             service_area = "new_client"
             intent = "alta_cliente"
-            phase_current = "fase_2_recogida_datos"
-            phase_next = "fase_3_validacion"
-            status = "in_progress"
-            next_action = "compartir_formulario_registro_cliente"
+            phase_current = "fase_7_escalado"
+            phase_next = "fase_7_escalado"
+            status = "escalated"
+            next_action = "continuar_conversacion"
             message_mode = "flow_progress"
             resume_prompt = ""
             missing_fields = []
-            reply = NEW_CLIENT_REGISTRATION_MESSAGE
+            requires_handoff = True
+            handoff_area = "operaciones"
+            reply = NEW_CLIENT_MANUAL_HANDOFF_MESSAGE
         else:
-            attempts = int(captured_fields.get("route_identification_attempts", 0) or 0) + 1
-            captured_fields["route_identification_attempts"] = attempts
-
             if (
                 is_catalog_inquiry(text)
                 and not is_route_operational_request(text)
@@ -5125,6 +5979,50 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                     "Claro, puedo orientarte con servicios, precios aproximados y procesos del laboratorio. "
                     "Cuentame que examen o necesidad tienes y te ayudo de inmediato."
                 )
+            elif tax_lookup_failed and not clinic_lookup_failed:
+                phase_current = "fase_2_recogida_datos"
+                phase_next = "fase_3_validacion"
+                status = "in_progress"
+                next_action = "solicitar_nif_o_nombre_fiscal"
+                message_mode = "flow_progress"
+                resume_prompt = ""
+                missing_fields = ["nombre de la veterinaria"]
+                requires_handoff = False
+                handoff_area = "none"
+                reply = ROUTE_CLIENT_NAME_VALIDATION_MESSAGE
+            elif clinic_lookup_failed and not tax_lookup_failed:
+                phase_current = "fase_2_recogida_datos"
+                phase_next = "fase_3_validacion"
+                status = "in_progress"
+                next_action = "solicitar_nif_o_nombre_fiscal"
+                message_mode = "flow_progress"
+                resume_prompt = ""
+                missing_fields = ["NIF/NID"]
+                requires_handoff = False
+                handoff_area = "none"
+                reply = ROUTE_CLIENT_TAX_VALIDATION_MESSAGE
+            elif tax_lookup_failed and clinic_lookup_failed:
+                phase_current = "fase_7_escalado"
+                phase_next = "fase_7_escalado"
+                status = "escalated"
+                next_action = "continuar_conversacion"
+                message_mode = "flow_progress"
+                resume_prompt = ""
+                missing_fields = []
+                requires_handoff = True
+                handoff_area = "operaciones"
+                reply = ROUTE_CLIENT_VALIDATION_HANDOFF_MESSAGE
+            elif attempts >= 5:
+                phase_current = "fase_7_escalado"
+                phase_next = "fase_7_escalado"
+                status = "escalated"
+                next_action = "continuar_conversacion"
+                message_mode = "flow_progress"
+                resume_prompt = ""
+                missing_fields = []
+                requires_handoff = True
+                handoff_area = "operaciones"
+                reply = ROUTE_CLIENT_VALIDATION_HANDOFF_MESSAGE
             elif attempts >= 3:
                 phase_current = "fase_2_recogida_datos"
                 phase_next = "fase_3_validacion"
@@ -5133,11 +6031,13 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 message_mode = "flow_progress"
                 resume_prompt = ""
                 missing_fields = ["NIF o nombre fiscal de la veterinaria"]
+                requires_handoff = False
+                handoff_area = "none"
                 reply = (
-                    "Aun no logro ubicar tu registro. Para continuar, envíame uno de estos datos:\n"
+                    "Aun no logro ubicar tu registro. Para continuar, enviame uno de estos datos:\n"
                     "- NIF/NIT (ejemplo: 900123456)\n"
                     "- Nombre de la veterinaria (ejemplo: Terra Pets)\n"
-                    "Si prefieres otra gestión, escribe 2, 3, 4, 5 o 6 del menú."
+                    "Si prefieres otra gestion, escribe 2, 3, 4, 5 o 6 del menu."
                 )
             elif attempts == 2:
                 phase_current = "fase_2_recogida_datos"
@@ -5147,6 +6047,8 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 message_mode = "flow_progress"
                 resume_prompt = ""
                 missing_fields = ["NIF o nombre fiscal de la veterinaria"]
+                requires_handoff = False
+                handoff_area = "none"
                 reply = (
                     "Para ubicarte rápido, compárteme por favor uno de estos datos:\n"
                     "- NIF/NIT\n"
@@ -5160,6 +6062,8 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 message_mode = "flow_progress"
                 resume_prompt = ""
                 missing_fields = ["NIF o nombre fiscal de la veterinaria"]
+                requires_handoff = False
+                handoff_area = "none"
                 reply = ROUTE_CLIENT_IDENTIFICATION_MESSAGE
 
     if (
@@ -5174,7 +6078,16 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         special_option = detect_special_menu_option(text)
 
         if last_session_action in {"confirmar_programacion_ruta", "continuar_conversacion"}:
-            if special_option == "pqrs":
+            if is_no_thanks_message(text):
+                phase_current = "fase_6_cierre"
+                phase_next = "fase_6_cierre"
+                status = "closed"
+                next_action = "continuar_conversacion"
+                missing_fields = []
+                message_mode = "flow_progress"
+                resume_prompt = ""
+                reply = ROUTE_CHAT_CLOSURE_MESSAGE
+            elif special_option == "pqrs":
                 intent = "no_clasificado"
                 service_area = "unknown"
                 phase_current = "fase_1_clasificacion"
@@ -5235,7 +6148,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         if "route_identification_attempts" in captured_fields:
             captured_fields["route_identification_attempts"] = 0
 
-        if service_area == "route_scheduling":
+        if service_area == "route_scheduling" and status not in {"closed", "cancelled"}:
             phase_current, phase_next, status, next_action, missing_fields, captured_fields = apply_route_conversation_guard(
                 session=session,
                 client=client,
@@ -5247,17 +6160,34 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 next_action=next_action,
             )
 
+            if is_truthy_flag(captured_fields.get("route_force_client_revalidation")):
+                captured_fields.pop("route_force_client_revalidation", None)
+                client = None
+                client_id = None
+
             if next_action == "confirmar_direccion_retiro":
                 clinic_label = captured_fields.get("clinic_name") or "tu veterinaria"
                 address_label = captured_fields.get("pickup_address") or "la direccion registrada"
                 time_window_label = str(captured_fields.get("pickup_time_window") or "").strip()
                 time_window_suffix = f" en franja {time_window_label}" if time_window_label else ""
-                reply = (
-                    "Perfecto, te ayudo con la programacion de ruta para retirar la muestra. "
-                    f"¿Confirmas que el retiro es para {clinic_label} en {address_label}{time_window_suffix}?"
-                )
+                if client_id:
+                    reply = (
+                        "Perfecto, ya ubique tu registro. "
+                        f"Encontre la veterinaria {clinic_label} con direccion {address_label}{time_window_suffix}. "
+                        "¿Confirmas que este es el cliente correcto y que la direccion de retiro es correcta?"
+                    )
+                else:
+                    reply = (
+                        "Perfecto, te ayudo con la programacion de ruta para retirar la muestra. "
+                        f"¿Confirmas que el retiro es para {clinic_label} en {address_label}{time_window_suffix}?"
+                    )
             elif next_action == "solicitar_direccion_actualizada":
                 reply = "Perfecto, por favor comparteme la direccion actual para programar el retiro."
+            elif next_action == "solicitar_nif_o_nombre_fiscal":
+                reply = (
+                    "Entendido, validemos el cliente correcto antes de continuar. "
+                    "Comparteme tu NIF/NIT o el nombre fiscal de la veterinaria para ubicar el registro."
+                )
             elif next_action == "confirmar_programacion_ruta":
                 time_window_label = str(captured_fields.get("pickup_time_window") or "").strip()
                 time_window_note = f" Franja registrada: {time_window_label}." if time_window_label else ""
@@ -5272,10 +6202,12 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                         f"Te confirmaremos cualquier novedad por este medio.{time_window_note}"
                     )
             elif next_action == "continuar_conversacion":
-                reply = (
-                    "Tu solicitud ya quedó programada. "
-                    "Si deseas, puedo ayudarte ahora con resultados, pagos, PQRS u otra consulta."
-                )
+                if status == "cancelled":
+                    reply = ROUTE_CANCELLATION_MESSAGE
+                elif status == "closed":
+                    reply = ROUTE_CHAT_CLOSURE_MESSAGE
+                else:
+                    reply = ROUTE_ALREADY_PROGRAMMED_MESSAGE
             else:
                 needs_clinic = not is_meaningful_value(captured_fields.get("clinic_name"))
                 needs_address = not is_meaningful_value(captured_fields.get("pickup_address"))
@@ -5301,6 +6233,45 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             resume_prompt = ""
             message_mode = "flow_progress"
 
+    if (
+        not is_first_turn
+        and service_area == "accounting"
+        and not requires_handoff
+        and should_apply_accounting_guard(session=session, text=text, reply=reply)
+    ):
+        (
+            phase_current,
+            phase_next,
+            status,
+            next_action,
+            missing_fields,
+            captured_fields,
+            requires_handoff,
+            handoff_area,
+            reply,
+            message_mode,
+            resume_prompt,
+        ) = apply_accounting_conversation_guard(
+            text=text,
+            captured_fields=captured_fields,
+        )
+
+    if service_area == "new_client":
+        captured_fields = clear_post_registration_target(captured_fields)
+        captured_fields["new_client_manual_handoff"] = "true"
+        intent = "alta_cliente"
+        phase_current = "fase_7_escalado"
+        phase_next = "fase_7_escalado"
+        status = "escalated"
+        requires_handoff = True
+        handoff_area = "operaciones"
+        next_action = "continuar_conversacion"
+        missing_fields = []
+        message_mode = "flow_progress"
+        resume_prompt = ""
+        reply = NEW_CLIENT_MANUAL_HANDOFF_MESSAGE
+        follow_up_message = ""
+
     if should_share_new_client_registration(
         service_area=service_area,
         requires_handoff=requires_handoff,
@@ -5315,6 +6286,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
     if (
         not is_first_turn
         and service_area == "new_client"
+        and not is_truthy_flag(captured_fields.get("new_client_manual_handoff"))
         and user_confirms_registration_completed(text)
     ):
         pending_service_area, pending_intent = get_pending_post_registration_target(captured_fields)
@@ -5370,6 +6342,26 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 "Para ayudarte con resultados sin demoras, comparteme por favor el numero de muestra "
                 "o el numero de orden."
             )
+            anti_loop_prompt = ""
+        elif service_area == "accounting":
+            tax_id = str(captured_fields.get("accounting_tax_id") or captured_fields.get("tax_id") or "").strip()
+            invoice_reference = str(captured_fields.get("accounting_invoice_reference") or "").strip()
+            period_reference = str(captured_fields.get("accounting_period_reference") or "").strip()
+            if tax_id and (invoice_reference or period_reference):
+                reply = (
+                    "Perfecto, ya tengo la informacion base. "
+                    "Te conecto con contabilidad para confirmar el estado y te responden en breve."
+                )
+            elif tax_id:
+                reply = "Perfecto, ya tengo tu NIF/NIT. Ahora comparteme numero de factura o periodo de cobro."
+            else:
+                reply = (
+                    "Para revisarlo sin demora, comparteme por favor NIF/NIT "
+                    "y numero de factura o periodo de cobro."
+                )
+            anti_loop_prompt = ""
+        elif service_area == "unknown" and (is_catalog_inquiry(text) or is_help_inquiry(text)):
+            reply = build_catalog_follow_up_reply(text)
             anti_loop_prompt = ""
         elif NEW_CLIENT_REGISTRATION_FORM_URL in reply:
             reply = (
@@ -5429,6 +6421,28 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
         pickup_address=None,
         scheduled_pickup_date=scheduled_pickup_date,
     )
+
+    if service_area == "route_scheduling" and status == "cancelled":
+        try:
+            now_iso = datetime.now().isoformat()
+            supabase.update_request(
+                request_ref["id"],
+                {
+                    "status": "cancelled",
+                    "updated_at": now_iso,
+                },
+            )
+            supabase.create_request_event(
+                request_id=request_ref["id"],
+                event_type="route_request_cancelled",
+                event_payload={
+                    "source": "telegram_user_message",
+                    "message_text": text,
+                    "cancelled_at": now_iso,
+                },
+            )
+        except httpx.HTTPStatusError:
+            print(f"[telegram] route_cancel_update_unavailable chat_id={chat_id}")
 
     if used_openai_fallback and openai_fallback_reason:
         try:
@@ -5719,9 +6733,14 @@ def run_legacy_flow(chat_id: int, text: str, client: dict[str, Any] | None, clie
             event_type="new_client_started",
             event_payload={"message": text},
         )
+        supabase.create_request_event(
+            request_id=new_client_request["id"],
+            event_type="human_handoff",
+            event_payload={"target": "operaciones"},
+        )
         telegram.send_message(
             chat_id,
-            NEW_CLIENT_REGISTRATION_MESSAGE,
+            NEW_CLIENT_MANUAL_HANDOFF_MESSAGE,
         )
 
     else:

@@ -104,7 +104,7 @@ class SupabaseService:
     def get_client_by_tax_id(self, tax_id: str) -> dict[str, Any] | None:
         params = {
             "tax_id": f"eq.{tax_id}",
-            "select": "id,clinic_name,phone,tax_id",
+            "select": "id,clinic_name,phone,tax_id,address",
             "limit": "1",
         }
         with httpx.Client(timeout=20) as client:
@@ -115,13 +115,25 @@ class SupabaseService:
                 return None
             return rows[0]
 
+    def search_clients_by_tax_id(self, tax_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        safe_tax = (tax_id or "").replace("%", "").replace("_", "").strip()
+        if not safe_tax:
+            return []
+        params = {
+            "tax_id": f"ilike.*{safe_tax}*",
+            "select": "id,clinic_name,phone,tax_id,address",
+            "order": "clinic_name.asc",
+            "limit": str(limit),
+        }
+        return self.fetch_rows("clients", params)
+
     def search_clients_by_clinic_name(self, clinic_name: str, limit: int = 5) -> list[dict[str, Any]]:
         safe_name = (clinic_name or "").replace("%", "").replace("_", "").strip()
         if not safe_name:
             return []
         params = {
             "clinic_name": f"ilike.*{safe_name}*",
-            "select": "id,clinic_name,phone,tax_id",
+            "select": "id,clinic_name,phone,tax_id,address",
             "order": "clinic_name.asc",
             "limit": str(limit),
         }
