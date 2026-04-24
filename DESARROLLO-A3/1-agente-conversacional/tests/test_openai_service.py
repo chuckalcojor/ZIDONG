@@ -54,6 +54,16 @@ class OpenAIServiceTests(unittest.TestCase):
         result = service.classify_service_area(user_message="ayuda")
         self.assertEqual(result, "unknown")
 
+    def test_candidate_models_adds_safe_backup_when_fallback_equals_primary(self) -> None:
+        service = OpenAIService(
+            api_key="test",
+            model="gpt-5-mini",
+            fallback_model="gpt-5-mini",
+            enable_fallback=True,
+        )
+
+        self.assertEqual(service._candidate_models(), ["gpt-5-mini", "gpt-4.1-mini"])
+
     def test_generate_turn_schema_supports_pickup_time_window_alias(self) -> None:
         service = OpenAIService(
             api_key="test",
@@ -111,8 +121,11 @@ class OpenAIServiceTests(unittest.TestCase):
         captured_props = captured_schema["properties"]
         self.assertIn("pickup_time_window", captured_props)
         self.assertIn("time_window", captured_props)
-        self.assertTrue(captured_schema.get("additionalProperties"))
-        self.assertNotIn("required", captured_schema)
+        self.assertFalse(captured_schema.get("additionalProperties"))
+        required_fields = captured_schema.get("required")
+        self.assertIsInstance(required_fields, list)
+        assert isinstance(required_fields, list)
+        self.assertEqual(set(required_fields), set(captured_props.keys()))
 
 
 if __name__ == "__main__":

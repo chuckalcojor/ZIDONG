@@ -5842,6 +5842,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
 
         attempts = int(captured_fields.get("route_identification_attempts", 0) or 0) + 1
         captured_fields["route_identification_attempts"] = attempts
+        same_tax_repeat_count = int(captured_fields.get("route_same_tax_repeat_count", 0) or 0)
 
         if tax_candidate:
             normalized_tax_id = normalize_tax_id(tax_candidate)
@@ -5863,12 +5864,19 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 captured_fields.pop("route_clinic_lookup_failed", None)
                 captured_fields.pop("route_last_failed_tax_id", None)
                 captured_fields.pop("route_last_failed_clinic_name", None)
+                captured_fields.pop("route_same_tax_repeat_count", None)
                 captured_fields["route_identification_attempts"] = 0
             else:
                 captured_fields["route_tax_lookup_failed"] = True
                 captured_fields["route_last_failed_tax_id"] = normalized_tax_id or last_failed_tax_id
 
-                if clinic_lookup_failed:
+                if normalized_tax_id and tax_lookup_failed and normalized_tax_id == last_failed_tax_id:
+                    same_tax_repeat_count += 1
+                else:
+                    same_tax_repeat_count = 1
+                captured_fields["route_same_tax_repeat_count"] = same_tax_repeat_count
+
+                if clinic_lookup_failed or same_tax_repeat_count >= 3:
                     phase_current = "fase_7_escalado"
                     phase_next = "fase_7_escalado"
                     status = "escalated"
@@ -5914,10 +5922,12 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 captured_fields.pop("route_clinic_lookup_failed", None)
                 captured_fields.pop("route_last_failed_tax_id", None)
                 captured_fields.pop("route_last_failed_clinic_name", None)
+                captured_fields.pop("route_same_tax_repeat_count", None)
                 captured_fields["route_identification_attempts"] = 0
             else:
                 captured_fields["route_clinic_lookup_failed"] = True
                 captured_fields["route_last_failed_clinic_name"] = clinic_hint
+                captured_fields.pop("route_same_tax_repeat_count", None)
 
                 if tax_lookup_failed:
                     phase_current = "fase_7_escalado"

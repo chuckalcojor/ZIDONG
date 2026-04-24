@@ -16,7 +16,7 @@ class OpenAIService:
         *,
         fallback_model: str | None = None,
         enable_fallback: bool = True,
-        max_retries: int = 0,
+        max_retries: int = 1,
     ) -> None:
         self.model = model
         self.fallback_model = (fallback_model or "").strip() or None
@@ -116,13 +116,21 @@ class OpenAIService:
 
     def _candidate_models(self) -> list[str]:
         models = [self.model]
-        if (
-            self.enable_fallback
-            and self.fallback_model
-            and self.fallback_model != self.model
-        ):
-            models.append(self.fallback_model)
-        return models
+        if self.enable_fallback:
+            if self.fallback_model and self.fallback_model != self.model:
+                models.append(self.fallback_model)
+            elif self.model != "gpt-4.1-mini":
+                models.append("gpt-4.1-mini")
+
+        deduped_models: list[str] = []
+        seen_models: set[str] = set()
+        for model_name in models:
+            if model_name in seen_models:
+                continue
+            deduped_models.append(model_name)
+            seen_models.add(model_name)
+
+        return deduped_models
 
     def generate_turn(
         self,
@@ -131,6 +139,21 @@ class OpenAIService:
         user_message: str,
         state: dict[str, Any],
     ) -> dict[str, Any]:
+        captured_fields_properties = {
+            "phone": {"type": ["string", "null"]},
+            "clinic_name": {"type": ["string", "null"]},
+            "pet_name": {"type": ["string", "null"]},
+            "sample_reference": {"type": ["string", "null"]},
+            "order_reference": {"type": ["string", "null"]},
+            "pickup_address": {"type": ["string", "null"]},
+            "time_window": {"type": ["string", "null"]},
+            "pickup_time_window": {"type": ["string", "null"]},
+            "priority": {
+                "type": ["string", "null"],
+                "enum": ["normal", "urgent", None],
+            },
+        }
+
         payload_template = {
             "input": [
                 {
@@ -159,7 +182,7 @@ class OpenAIService:
                     ],
                 },
             ],
-            "max_output_tokens": 700,
+            "max_output_tokens": 1200,
             "text": {
                 "format": {
                     "type": "json_schema",
@@ -236,21 +259,9 @@ class OpenAIService:
                             },
                             "captured_fields": {
                                 "type": "object",
-                                "additionalProperties": True,
-                                "properties": {
-                                    "phone": {"type": ["string", "null"]},
-                                    "clinic_name": {"type": ["string", "null"]},
-                                    "pet_name": {"type": ["string", "null"]},
-                                    "sample_reference": {"type": ["string", "null"]},
-                                    "order_reference": {"type": ["string", "null"]},
-                                    "pickup_address": {"type": ["string", "null"]},
-                                    "time_window": {"type": ["string", "null"]},
-                                    "pickup_time_window": {"type": ["string", "null"]},
-                                    "priority": {
-                                        "type": ["string", "null"],
-                                        "enum": ["normal", "urgent", None],
-                                    },
-                                },
+                                "additionalProperties": False,
+                                "properties": captured_fields_properties,
+                                "required": list(captured_fields_properties.keys()),
                             },
                             "next_action": {"type": "string"},
                             "message_mode": {
@@ -293,7 +304,7 @@ class OpenAIService:
         for model_name in self._candidate_models():
             payload = {**payload_template, "model": model_name}
             try:
-                body = self._post_responses(payload, timeout=14)
+                body = self._post_responses(payload, timeout=20)
                 parsed = self._extract_output_json(body)
                 if isinstance(parsed, dict):
                     return parsed
@@ -374,7 +385,7 @@ class OpenAIService:
         for model_name in self._candidate_models():
             payload = {**payload_template, "model": model_name}
             try:
-                body = self._post_responses(payload, timeout=8)
+                body = self._post_responses(payload, timeout=10)
                 parsed = self._extract_output_json(body)
                 return str(parsed.get("service_area") or "unknown")
             except (httpx.HTTPError, ValueError, json.JSONDecodeError):

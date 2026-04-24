@@ -51,7 +51,7 @@ settings = Settings(
     new_client_form_webhook_secret=os.getenv("NEW_CLIENT_FORM_WEBHOOK_SECRET", ""),
     openai_api_key=os.getenv("OPENAI_API_KEY", ""),
     openai_model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    openai_fallback_model=os.getenv("OPENAI_FALLBACK_MODEL", "gpt-5-mini"),
+    openai_fallback_model=os.getenv("OPENAI_FALLBACK_MODEL", "gpt-4.1-mini"),
     openai_enable_fallback=os.getenv("OPENAI_ENABLE_FALLBACK", "true").strip().lower()
     in {"1", "true", "yes", "on"},
 )

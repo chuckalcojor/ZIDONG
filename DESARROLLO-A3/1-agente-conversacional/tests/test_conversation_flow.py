@@ -1835,6 +1835,29 @@ class ConversationFlowTests(unittest.TestCase):
         self.assertIn("nombre de la veterinaria", sent)
         self.assertNotIn("comparteme por favor el nit/nid", sent)
 
+    def test_route_identification_repeated_same_tax_id_escalates_after_threshold(self) -> None:
+        self.fake_supabase.sessions["12521"] = make_session(
+            12521,
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="solicitar_nif_o_nombre_fiscal",
+            captured_fields={
+                "route_tax_lookup_failed": True,
+                "route_last_failed_tax_id": "999999999",
+                "route_same_tax_repeat_count": 2,
+            },
+        )
+        main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
+
+        main.handle_telegram_message(12521, "999999999")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("atencion al cliente", sent)
+        stored = self.fake_supabase.sessions["12521"]
+        self.assertTrue(stored["requires_handoff"])
+        self.assertEqual(stored["handoff_area"], "operaciones")
+        self.assertEqual(stored["status"], "escalated")
+
     def test_route_identification_repeated_failed_name_derives_to_human(self) -> None:
         self.fake_supabase.sessions["1253"] = make_session(
             1253,
