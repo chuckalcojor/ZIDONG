@@ -662,6 +662,7 @@ EXPLICIT_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
     ),
     "accounting": (
         "contabilidad",
+        "gestion de pagos",
         "factura",
         "facturacion",
         "cartera",
@@ -737,12 +738,12 @@ INITIAL_GREETING_MESSAGE_NO_QUESTION = (
 )
 INTENT_CLARIFICATION_MESSAGE = (
     "Para ayudarte mejor, cuéntame qué necesitas hoy:\n"
-    " 1. Programar recogida de muestras\n"
-    " 2. Consulta de resultados\n"
-    " 3. Aclara tus pagos\n"
-    " 4. ¿Eres cliente nuevo?\n"
-    " 5. PQRS\n"
-    " 6. Otras consultas"
+    "- Programar recogida de muestras\n"
+    "- Consulta de resultados\n"
+    "- Gestion de pagos\n"
+    "- ¿Eres cliente nuevo?\n"
+    "- PQRS\n"
+    "- Otras consultas"
 )
 PQRS_LINK_URL = "https://a3laboratorio.co/pqrs/"
 PQRS_MESSAGE = (
@@ -775,7 +776,7 @@ NEW_CLIENT_REGISTRATION_MESSAGE = (
 )
 NEW_CLIENT_POST_REGISTRATION_MESSAGE = (
     "Genial, si ya estas registrado podemos proceder con la programacion de ruta o con lo que necesites. "
-    "¿Deseas programar recogida de muestras, consulta de resultados, aclarar tus pagos, "
+    "¿Deseas programar recogida de muestras, consulta de resultados, gestion de pagos, "
     "consultar PQRS u otras consultas?"
 )
 NEW_CLIENT_POST_REGISTRATION_ROUTE_MESSAGE = (
@@ -2642,7 +2643,11 @@ def should_apply_accounting_guard(*, session: dict[str, Any] | None, text: str, 
 
     previous_bot_message = ((session or {}).get("last_bot_message") or "").strip().lower()
     current_reply = (reply or "").strip().lower()
-    if previous_bot_message and previous_bot_message == current_reply and "contabilidad" in current_reply:
+    if (
+        previous_bot_message
+        and previous_bot_message == current_reply
+        and ("contabilidad" in current_reply or "gestion de pagos" in current_reply)
+    ):
         return True
 
     return False
@@ -4699,6 +4704,7 @@ def is_explicit_intent_switch(text: str) -> bool:
         "programacion de ruta",
         "programar recogida de muestras",
         "consulta de resultados",
+        "gestion de pagos",
         "aclara tus pagos",
         "ruta",
         "cliente nuevo",
@@ -4911,9 +4917,9 @@ def enforce_service_area_reply_quality(
     if service_area == "accounting":
         resume_prompt = build_resume_question(missing_fields)
         if resume_prompt:
-            return f"Perfecto, te ayudo con contabilidad. {resume_prompt}"
+            return f"Perfecto, te ayudo con gestion de pagos. {resume_prompt}"
         return (
-            "Perfecto, te ayudo con contabilidad. Para revisarlo rapido, "
+            "Perfecto, te ayudo con gestion de pagos. Para revisarlo rapido, "
             "comparteme NIF y si tienes numero de factura o periodo de cobro."
         )
     if service_area == "new_client":
@@ -5114,9 +5120,9 @@ def apply_accounting_conversation_guard(
     if tax_id and (invoice_reference or period_reference):
         period_or_invoice = invoice_reference or period_reference
         reply = (
-            "Perfecto, ya tengo tus datos para contabilidad "
+            "Perfecto, ya tengo tus datos para gestion de pagos "
             f"(NIF/NIT y referencia {period_or_invoice}). "
-            "Te conecto con contabilidad para revisarlo y te confirmamos en breve."
+            "Te conecto con gestion de pagos para revisarlo y te confirmamos en breve."
         )
         return (
             "fase_7_escalado",
@@ -5172,7 +5178,7 @@ def apply_accounting_conversation_guard(
             captured_fields,
             True,
             "contabilidad",
-            "Para evitar mas demoras, te conecto con contabilidad y revisan tu caso directamente.",
+            "Para evitar mas demoras, te conecto con gestion de pagos y revisan tu caso directamente.",
             "flow_progress",
             "",
         )
@@ -5186,7 +5192,7 @@ def apply_accounting_conversation_guard(
         captured_fields,
         False,
         "none",
-        "Perfecto, te ayudo con contabilidad. Para revisarlo rapido, comparteme NIF y si tienes numero de factura o periodo de cobro.",
+        "Perfecto, te ayudo con gestion de pagos. Para revisarlo rapido, comparteme NIF y si tienes numero de factura o periodo de cobro.",
         "flow_progress",
         "",
     )
@@ -6047,7 +6053,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                     "Aun no logro ubicar tu registro. Para continuar, enviame uno de estos datos:\n"
                     "- NIF/NIT (ejemplo: 900123456)\n"
                     "- Nombre de la veterinaria (ejemplo: Terra Pets)\n"
-                    "Si prefieres otra gestion, escribe 2, 3, 4, 5 o 6 del menu."
+                    "Si necesitas otra gestion, cuentame como te puedo ayudar y te guio de inmediato."
                 )
             elif attempts == 2:
                 phase_current = "fase_2_recogida_datos"
@@ -6149,7 +6155,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
                 elif service_area == "accounting":
                     next_action = "continuar_conversacion"
                     missing_fields = []
-                    reply = "Perfecto, te ayudo con pagos y contabilidad. Cuéntame el detalle de tu caso."
+                    reply = "Perfecto, te ayudo con gestion de pagos. Cuentame el detalle de tu caso."
                 elif service_area == "new_client":
                     next_action = "compartir_formulario_registro_cliente"
                     missing_fields = []
@@ -6360,7 +6366,7 @@ def handle_telegram_message(chat_id: int, text: str) -> None:
             if tax_id and (invoice_reference or period_reference):
                 reply = (
                     "Perfecto, ya tengo la informacion base. "
-                    "Te conecto con contabilidad para confirmar el estado y te responden en breve."
+                    "Te conecto con gestion de pagos para confirmar el estado y te responden en breve."
                 )
             elif tax_id:
                 reply = "Perfecto, ya tengo tu NIF/NIT. Ahora comparteme numero de factura o periodo de cobro."
@@ -6707,7 +6713,7 @@ def run_legacy_flow(chat_id: int, text: str, client: dict[str, Any] | None, clie
         )
         telegram.send_message(
             chat_id,
-            "Te comunicamos con el area de contabilidad. Un asesor te responde pronto.",
+            "Te comunicamos con el area de gestion de pagos. Un asesor te responde pronto.",
         )
 
     elif routed["service_area"] == "results":

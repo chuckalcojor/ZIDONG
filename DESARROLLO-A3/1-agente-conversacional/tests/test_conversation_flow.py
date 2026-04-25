@@ -857,12 +857,12 @@ class ConversationFlowTests(unittest.TestCase):
                 intent="contabilidad",
                 service_area="accounting",
                 missing_fields=[],
-                reply="Te comunico con contabilidad para ayudarte con la factura.",
+                reply="Te comunico con gestion de pagos para ayudarte con la factura.",
             )
         )
         main.handle_telegram_message(108, "necesito contabilidad")
         sent = self.fake_telegram.messages[-1][1]
-        self.assertIn("contabilidad", sent.lower())
+        self.assertIn("gestion de pagos", sent.lower())
         self.assertNotIn("nif", sent.lower())
 
     def test_accounting_numeric_messages_progress_without_repeating_same_reply(self) -> None:
@@ -875,7 +875,7 @@ class ConversationFlowTests(unittest.TestCase):
             status="in_progress",
             next_action="continuar_conversacion",
             last_bot_message=(
-                "Perfecto, te ayudo con contabilidad. Para revisarlo rapido, "
+                "Perfecto, te ayudo con gestion de pagos. Para revisarlo rapido, "
                 "comparteme NIF y si tienes numero de factura o periodo de cobro."
             ),
         )
@@ -886,7 +886,7 @@ class ConversationFlowTests(unittest.TestCase):
                 missing_fields=[],
                 next_action="continuar_conversacion",
                 reply=(
-                    "Perfecto, te ayudo con contabilidad. Para revisarlo rapido, "
+                    "Perfecto, te ayudo con gestion de pagos. Para revisarlo rapido, "
                     "comparteme NIF y si tienes numero de factura o periodo de cobro."
                 ),
             )
@@ -899,7 +899,7 @@ class ConversationFlowTests(unittest.TestCase):
         second = self.fake_telegram.messages[-1][1]
 
         self.assertNotEqual(first, second)
-        self.assertIn("contabilidad", second.lower())
+        self.assertIn("gestion de pagos", second.lower())
         stored = self.fake_supabase.sessions["1081"]
         self.assertEqual(stored["service_area"], "accounting")
         self.assertTrue(stored["requires_handoff"])
@@ -989,12 +989,15 @@ class ConversationFlowTests(unittest.TestCase):
 
     def test_clarification_menu_includes_six_options(self) -> None:
         menu = main.INTENT_CLARIFICATION_MESSAGE
-        self.assertIn("1. Programar recogida de muestras", menu)
-        self.assertIn("2. Consulta de resultados", menu)
-        self.assertIn("3. Aclara tus pagos", menu)
-        self.assertIn("4. ¿Eres cliente nuevo?", menu)
-        self.assertIn("5. PQRS", menu)
-        self.assertIn("6. Otras consultas", menu)
+        self.assertIn("- Programar recogida de muestras", menu)
+        self.assertIn("- Consulta de resultados", menu)
+        self.assertIn("- Gestion de pagos", menu)
+        self.assertIn("- ¿Eres cliente nuevo?", menu)
+        self.assertIn("- PQRS", menu)
+        self.assertIn("- Otras consultas", menu)
+        self.assertNotIn("1.", menu)
+        self.assertNotIn("2.", menu)
+        self.assertNotIn("3.", menu)
 
     def test_pqrs_option_shares_link_and_returns_menu(self) -> None:
         self.fake_supabase.sessions["117"] = make_session(117)
@@ -1857,6 +1860,26 @@ class ConversationFlowTests(unittest.TestCase):
         self.assertTrue(stored["requires_handoff"])
         self.assertEqual(stored["handoff_area"], "operaciones")
         self.assertEqual(stored["status"], "escalated")
+
+    def test_route_identification_retry_prompt_uses_natural_language_without_menu_numbers(self) -> None:
+        self.fake_supabase.sessions["12522"] = make_session(
+            12522,
+            intent_current="programacion_rutas",
+            service_area="route_scheduling",
+            next_action="solicitar_nif_o_nombre_fiscal",
+            captured_fields={
+                "route_identification_attempts": 2,
+            },
+        )
+        main.openai_service = FakeOpenAI(lambda _msg, _state: make_turn())
+
+        main.handle_telegram_message(12522, "aun no me ubican")
+
+        sent = self.fake_telegram.messages[-1][1].lower()
+        self.assertIn("cuentame como te puedo ayudar", sent)
+        self.assertNotIn("escribe 2, 3, 4, 5 o 6", sent)
+        stored = self.fake_supabase.sessions["12522"]
+        self.assertEqual(stored["next_action"], "solicitar_nif_o_nombre_fiscal")
 
     def test_route_identification_repeated_failed_name_derives_to_human(self) -> None:
         self.fake_supabase.sessions["1253"] = make_session(

@@ -6,6 +6,7 @@ ROUTES = {
     "programacion de ruta": "route_scheduling",
     "ruta": "route_scheduling",
     "contabilidad": "accounting",
+    "gestion de pagos": "accounting",
     "resultados": "results",
     "cliente nuevo": "new_client",
 }
